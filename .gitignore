@@ -6,6 +6,7 @@ venv/
 *.egg-info/
 .DS_Store
 richmenu_ids.json
+supabase/.temp/
 
 # editors / IDE
 .vscode/

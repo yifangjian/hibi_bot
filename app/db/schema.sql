@@ -69,3 +69,12 @@ CREATE TABLE feedback_logs (
     human_reviewed BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- 圖文選單點擊行為紀錄（研究問題二：練習是否容易啟動的行為訊號）
+CREATE TABLE menu_interaction_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id),
+    action TEXT NOT NULL,
+    mode TEXT,
+    clicked_at TIMESTAMPTZ DEFAULT now()
+);
