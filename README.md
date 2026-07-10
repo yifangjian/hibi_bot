@@ -53,7 +53,7 @@ hibi_bot 希望透過學生每天都在使用的 LINE，把練習變成一件低
 
 ## 6. 本機開發設置
 
-**環境需求**：Python 3.11+
+**環境需求**：Python 3.11+、[Git LFS](https://git-lfs.com/)（完成圖卡用的中文字型檔案 `assets/fonts/NotoSansTC-Bold.otf` 透過 LFS 存放；clone 前請先安裝並執行 `git lfs install`，否則該檔案只會是一段指標文字而非真正的字型檔）
 
 ```bash
 # 建立虛擬環境並安裝依賴
