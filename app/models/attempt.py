@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -16,3 +16,4 @@ class AttemptLog(BaseModel):
     attempt_type: AttemptType
     pushed_at: Optional[datetime] = None
     responded_at: datetime
+    answer_detail: Optional[dict[str, Any]] = None

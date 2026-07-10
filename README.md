@@ -2,7 +2,7 @@
 
 高級日語課堂外自主練習用 LINE Chatbot，結合產出導向法（Production-Oriented Approach, POA）與生成式 AI 即時解釋型回饋，同時作為準實驗研究的資料蒐集系統。
 
-> 目前為 Phase 1（專案骨架）階段：已建立目錄結構、資料庫 schema、FastAPI 基礎路由與 LINE webhook 簽章驗證，尚未實作題目卡片、圖文選單串接、AI 回饋生成與推播邏輯。
+> 目前進度：Phase 1（專案骨架）、Phase 2（圖文選單串接）、Phase 3（Flex Message 題目卡片與回饋卡片）皆已完成並上線測試過。三種模式的「開始練習 → 作答 → 回饋 → 再練一題」完整流程已可運作；回饋卡片的解釋文字目前為 `explanation_rule` 欄位的 placeholder 顯示，尚未串接 OpenAI；AI 助教與推播排程尚為 stub，留待後續階段。
 
 ## 1. 專案簡介
 
@@ -38,11 +38,11 @@ hibi_bot 希望透過學生每天都在使用的 LINE，把練習變成一件低
 ## 4. 功能特色
 
 - **三種練習模式**
-  - 単語：詞彙讀音選擇題
-  - 諺：兩階段設計（語意／情境選擇題 → 讀音輸入題）
-  - 言語知識：題型保留彈性欄位，待後續階段設計
-- **圖文選單設計**：（截圖與說明待補）
-- **解釋型回饋機制**：作答後由 OpenAI API 根據該題的 `explanation_rule` 即時生成個別化解釋，而非單純顯示正解
+  - 単語：單階段，情境例句挖空＋選項（選正確讀音）
+  - 諺：兩階段設計（語意／情境選擇題 → 讀音輸入題，兩階段合併判定為一筆作答紀錄）
+  - 言語知識：單階段，情境例句挖空＋選項，與諺的情境式選擇題共用同一套 Flex 模板
+- **圖文選單設計**：四層選單（主選單／模式選單／開始練習子選單／錯題模式子選單），透過 LINE 原生 `richmenuswitch` 切換並同步回傳 postback 供後端記錄行為
+- **解釋型回饋機制**：作答後顯示對應該題 `explanation_rule` 的說明（目前為 placeholder 顯示，Phase 4 起改由 OpenAI API 即時生成個別化解釋）
 
 ## 5. 研究背景
 
@@ -70,6 +70,31 @@ uvicorn app.main:app --reload
 **資料庫設置**：於 Supabase 專案的 SQL Editor 中執行 [`app/db/schema.sql`](app/db/schema.sql)。
 
 **本機測試 LINE webhook**：由於 LINE 平台需要對外可存取的 HTTPS 端點，本機開發可使用 [ngrok](https://ngrok.com/) 建立臨時通道（`ngrok http 8000`），再將產生的網址填入 LINE Developers Console 的 Webhook URL；也可以使用 LINE 官方提供的 Webhook 驗證工具（Console 內的「Verify」按鈕）確認端點是否正常回應。
+
+**圖文選單設置**：`.env` 填好 `LINE_CHANNEL_ACCESS_TOKEN` 後，執行一次：
+
+```bash
+python scripts/setup_richmenu.py
+```
+
+會建立所有 rich menu、上傳圖片、建立 alias、設定預設選單，並輸出 `richmenu_ids.json`（僅供除錯，已加入 `.gitignore`）。
+
+**測試練習流程**：資料庫執行過 `schema.sql` 後，先灌入測試題庫：
+
+```bash
+python scripts/seed_sample_questions.py
+```
+
+會建立単語 x2、言語知識 x2、諺 x1 對（語意/情境選擇 + 讀音輸入）的最小題庫。接著用測試帳號加官方帳號好友，實際跑一次：
+
+1. 點選單「単語」→「開始練習」→ 回答題目卡片上的選項 → 確認收到回饋卡片 →「再練一題」
+2. 點選單「諺」→「開始練習」→ 回答第一階段選項 → 收到讀音輸入提示卡 → 直接在聊天室輸入平假名 → 確認收到合併判定後的回饋卡片
+3. 點「開始練習」子選單裡的「AI助教」→ 收到輸入題號的提示 → 輸入任意數字 → 確認收到 placeholder 回覆
+
+跑完後可到 Supabase 後台檢查：
+- `attempts_log`：每完成一題（諺為兩階段合併後）應新增一筆，`is_correct` 與作答內容正確；諺的紀錄 `answer_detail` 應包含兩階段細節
+- `wrong_question_state`：答錯的題目狀態為 `wrong`，答對且原本錯誤的題目應變為 `resolved`
+- `unit_progress`：該單元全部題目都作答過後 `all_attempted` 應為 `true`；錯題全部清除後 `all_wrong_resolved` 應為 `true`
 
 ## License
 
