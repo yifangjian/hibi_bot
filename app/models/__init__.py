@@ -5,6 +5,7 @@ from app.models.menu_interaction import MenuInteractionLog
 from app.models.question import Question, QuestionOption
 from app.models.unit_progress import UnitProgress
 from app.models.user import User
+from app.models.user_session_state import UserSessionState
 from app.models.wrong_question import WrongQuestionState
 
 __all__ = [
@@ -16,5 +17,6 @@ __all__ = [
     "QuestionOption",
     "UnitProgress",
     "User",
+    "UserSessionState",
     "WrongQuestionState",
 ]

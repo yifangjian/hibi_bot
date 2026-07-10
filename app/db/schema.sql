@@ -29,7 +29,8 @@ CREATE TABLE attempts_log (
     is_correct BOOLEAN,
     attempt_type TEXT CHECK (attempt_type IN ('first', 'review')),
     pushed_at TIMESTAMPTZ,   -- 若為系統推播觸發則有值，使用者自發練習則為 NULL
-    responded_at TIMESTAMPTZ DEFAULT now()
+    responded_at TIMESTAMPTZ DEFAULT now(),
+    answer_detail JSONB  -- 諺兩階段合併判定明細：{stage1_option, stage1_correct, stage2_reading_input, stage2_correct}；其他模式為 NULL
 );
 
 -- 錯題狀態（可變，反映當下的錯題列表）
@@ -77,4 +78,12 @@ CREATE TABLE menu_interaction_log (
     action TEXT NOT NULL,
     mode TEXT,
     clicked_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 使用者當下等待的文字輸入（諺第二階段讀音輸入／AI 助教題號輸入）
+CREATE TABLE user_session_state (
+    user_id UUID PRIMARY KEY REFERENCES users(id),
+    pending_action TEXT,  -- 'awaiting_reading_input' / 'awaiting_ai_tutor_question_number' / NULL
+    context JSONB,        -- 例如 {"question_id": "...", "mode": "proverb", "first_stage_option": "..."}
+    updated_at TIMESTAMPTZ DEFAULT now()
 );
