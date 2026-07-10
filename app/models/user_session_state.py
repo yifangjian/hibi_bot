@@ -4,7 +4,9 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-PendingAction = Literal["awaiting_reading_input", "awaiting_ai_tutor_question_number"]
+PendingAction = Literal[
+    "awaiting_reading_input", "awaiting_ai_tutor_question_number", "in_ai_tutor_conversation"
+]
 
 
 class UserSessionState(BaseModel):

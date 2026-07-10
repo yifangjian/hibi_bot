@@ -30,6 +30,7 @@ from linebot.v3.messaging import (  # noqa: E402
 )
 
 from app.config import settings  # noqa: E402
+from app.services.rich_menu_alias import ALIAS_MAIN, mode_alias  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("setup_richmenu")
@@ -38,16 +39,6 @@ ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets" / "richmenu"
 OUTPUT_PATH = Path(__file__).resolve().parent.parent / "richmenu_ids.json"
 
 MODES = ["vocab", "proverb", "language_knowledge"]
-
-ALIAS_MAIN = "alias_main"
-
-# LINE 的 richMenuAliasId 上限 32 字元，"language_knowledge" 太長，故 alias 用短碼；
-# postback data 裡的 mode 參數仍維持完整字串，不受此限制影響
-ALIAS_MODE_CODE = {"vocab": "vocab", "proverb": "proverb", "language_knowledge": "lk"}
-
-
-def mode_alias(prefix: str, mode: str) -> str:
-    return f"alias_{prefix}_{ALIAS_MODE_CODE[mode]}"
 
 
 def area(x: int, y: int, width: int, height: int, action) -> RichMenuArea:

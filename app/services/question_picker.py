@@ -14,6 +14,25 @@ def get_proverb_stage2(stage1_question_id: str) -> Optional[dict[str, Any]]:
     return res.data[0] if res.data else None
 
 
+def find_question_by_number(mode: str, question_number: int) -> Optional[dict[str, Any]]:
+    res = (
+        supabase.table("questions")
+        .select("*")
+        .eq("mode", mode)
+        .eq("question_number", question_number)
+        .is_("parent_question_id", "null")
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+def option_text(question: dict[str, Any], option_id: Optional[str]) -> str:
+    for option in question.get("options") or []:
+        if option["id"] == option_id:
+            return option["text"]
+    return option_id or ""
+
+
 def pick_next_question(user_id: UUID, mode: str) -> Optional[dict[str, Any]]:
     """挑下一題：優先給該使用者在此模式下還沒作答過的題目（依單元順序），
     若全部都答過則從頭重來。只考慮「頂層」題目（單語/言語知識的單一題目，

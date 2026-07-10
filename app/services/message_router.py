@@ -1,9 +1,9 @@
 import re
 from uuid import UUID
 
-from app.services import flex_templates, line_client
+from app.services import ai_tutor, feedback_generator, flex_templates, line_client
 from app.services.answer_handler import finalize_attempt
-from app.services.question_picker import get_proverb_stage2, get_question
+from app.services.question_picker import get_proverb_stage2, get_question, option_text
 from app.services.session_state import clear_session_state, get_session_state
 
 QUESTION_NUMBER_RE = re.compile(r"^\d+$")
@@ -16,8 +16,10 @@ def handle_text_message(user_id: UUID, text: str, reply_token: str) -> None:
     if pending_action == "awaiting_reading_input":
         _handle_reading_input(user_id, text, reply_token, state.get("context") or {})
     elif pending_action == "awaiting_ai_tutor_question_number":
-        _handle_ai_tutor_question_number(user_id, text, reply_token)
-    # 不在這兩種等待狀態下收到的文字訊息，維持現有預設行為（不處理）
+        _handle_ai_tutor_question_number(user_id, text, reply_token, state.get("context") or {})
+    elif pending_action == "in_ai_tutor_conversation":
+        ai_tutor.continue_conversation(user_id, state.get("context") or {}, text, reply_token)
+    # 不在這幾種等待狀態下收到的文字訊息，維持現有預設行為（不處理）
 
 
 def _handle_reading_input(user_id: UUID, text: str, reply_token: str, context: dict) -> None:
@@ -39,7 +41,7 @@ def _handle_reading_input(user_id: UUID, text: str, reply_token: str, context: d
         explanation_parts.append(f"【讀音】{stage2_question['explanation_rule']}")
     explanation_text = "\n".join(explanation_parts)
 
-    finalize_attempt(
+    attempt = finalize_attempt(
         user_id=user_id,
         question=stage1_question,
         is_correct=is_correct,
@@ -53,18 +55,30 @@ def _handle_reading_input(user_id: UUID, text: str, reply_token: str, context: d
     )
     clear_session_state(user_id)
 
+    stage1_selected_text = option_text(stage1_question, stage1_option)
+    stage1_correct_text = option_text(stage1_question, stage1_question.get("correct_option"))
+    stage2_correct_reading = stage2_question.get("correct_option") if stage2_question else ""
+
+    feedback_text = feedback_generator.generate_and_log_feedback(
+        attempt_log_id=attempt["id"],
+        context_sentence=stage1_question.get("context_sentence") or "",
+        correct_option_text=f"選項：{stage1_correct_text}；讀音：{stage2_correct_reading}",
+        selected_option_text=f"選項：{stage1_selected_text}；讀音：{text}",
+        explanation_rule=explanation_text,
+        is_correct=is_correct,
+    )
+
     line_client.reply_flex(
         reply_token,
         alt_text="答題結果",
-        contents=flex_templates.build_feedback_card(is_correct, explanation_text, mode),
+        contents=flex_templates.build_feedback_card(is_correct, feedback_text, mode),
     )
 
 
-def _handle_ai_tutor_question_number(user_id: UUID, text: str, reply_token: str) -> None:
+def _handle_ai_tutor_question_number(user_id: UUID, text: str, reply_token: str, context: dict) -> None:
     stripped = text.strip()
     if not QUESTION_NUMBER_RE.match(stripped):
         line_client.reply_text(reply_token, "請輸入有效的題號（純數字）")
         return
 
-    clear_session_state(user_id)
-    line_client.reply_text(reply_token, f"（AI 解析功能將於下階段實作）你輸入的題號是 {stripped}")
+    ai_tutor.start_conversation(user_id, context.get("mode"), stripped, reply_token)

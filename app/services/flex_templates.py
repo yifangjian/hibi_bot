@@ -107,6 +107,61 @@ def build_reading_input_prompt_card(question: dict[str, Any]) -> dict:
     }
 
 
+def build_ai_tutor_reply_card(answer_text: str, mode: str, remaining_text: Optional[str] = None) -> dict:
+    """AI 助教回覆卡片（初次解析／追問共用）：內容 + 剩餘額度提示（若有）+「問其他題」／「繼續練習」按鈕。"""
+    contents: list[dict] = [
+        {"type": "text", "text": answer_text, "wrap": True, "size": "sm", "color": NAVY},
+    ]
+    if remaining_text:
+        contents.append(
+            {"type": "text", "text": remaining_text, "wrap": True, "size": "xs", "color": MUTED, "margin": "md"}
+        )
+
+    contents.append(
+        {
+            "type": "box",
+            "layout": "horizontal",
+            "margin": "xl",
+            "spacing": "md",
+            "contents": [
+                {
+                    "type": "button",
+                    "style": "secondary",
+                    "action": {
+                        "type": "postback",
+                        "label": "問其他題",
+                        "data": f"action=ai_tutor_prompt&mode={mode}",
+                        "displayText": "問其他題",
+                    },
+                },
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "color": NAVY,
+                    "action": {
+                        "type": "postback",
+                        "label": "繼續練習",
+                        "data": f"action=next_question&mode={mode}",
+                        "displayText": "繼續練習",
+                    },
+                },
+            ],
+        }
+    )
+
+    return {
+        "type": "bubble",
+        "size": "mega",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": BACKGROUND,
+            "paddingAll": "20px",
+            "contents": contents,
+        },
+    }
+
+
 def build_feedback_card(is_correct: bool, explanation_text: str, mode: str) -> dict:
     """三模式共用的回饋卡片。"""
     return {
