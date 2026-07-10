@@ -2,10 +2,10 @@ import logging
 from typing import Optional
 from uuid import UUID
 
-from app.services import flex_templates, line_client
+from app.services import feedback_generator, flex_templates, line_client
 from app.services.answer_handler import finalize_attempt
-from app.services.question_picker import get_question, pick_next_question
-from app.services.session_state import set_session_state
+from app.services.question_picker import get_question, option_text, pick_next_question
+from app.services.session_state import clear_session_state, set_session_state
 
 logger = logging.getLogger("hibi_bot.menu_actions")
 
@@ -31,6 +31,7 @@ def handle_start_practice(user_id: UUID, params: dict, reply_token: str) -> None
 
 
 def handle_next_question(user_id: UUID, params: dict, reply_token: str) -> None:
+    clear_session_state(user_id)
     _serve_next_question(user_id, params.get("mode"), reply_token)
 
 
@@ -43,7 +44,8 @@ def handle_reset_unit(user_id: UUID, params: dict, reply_token: str) -> None:
 
 
 def handle_back(user_id: UUID, params: dict, reply_token: str) -> None:
-    logger.info("Stub handle_back: user=%s params=%s", user_id, params)
+    clear_session_state(user_id)
+    logger.info("handle_back: cleared session state, user=%s params=%s", user_id, params)
 
 
 def handle_ai_tutor_prompt(user_id: UUID, params: dict, reply_token: str) -> None:
@@ -85,12 +87,19 @@ def handle_answer(user_id: UUID, params: dict, reply_token: str) -> None:
         return
 
     # 単語 / 言語知識：單階段，直接判定並寫入
-    finalize_attempt(user_id=user_id, question=question, is_correct=is_correct, selected_option=opt)
-    explanation_text = question.get("explanation_rule") or ""
+    attempt = finalize_attempt(user_id=user_id, question=question, is_correct=is_correct, selected_option=opt)
+    feedback_text = feedback_generator.generate_and_log_feedback(
+        attempt_log_id=attempt["id"],
+        context_sentence=question.get("context_sentence") or "",
+        correct_option_text=option_text(question, question.get("correct_option")),
+        selected_option_text=option_text(question, opt),
+        explanation_rule=question.get("explanation_rule") or "",
+        is_correct=is_correct,
+    )
     line_client.reply_flex(
         reply_token,
         alt_text="答題結果",
-        contents=flex_templates.build_feedback_card(is_correct, explanation_text, question["mode"]),
+        contents=flex_templates.build_feedback_card(is_correct, feedback_text, question["mode"]),
     )
 
 

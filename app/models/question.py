@@ -24,4 +24,5 @@ class Question(BaseModel):
     options: Optional[list[QuestionOption]] = None
     correct_option: Optional[str] = None
     explanation_rule: Optional[str] = None
+    question_number: Optional[int] = None
     created_at: datetime

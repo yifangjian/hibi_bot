@@ -1,3 +1,4 @@
+from app.models.ai_conversation import AiConversationLogEntry
 from app.models.ai_usage import AiConversationUsage
 from app.models.attempt import AttemptLog
 from app.models.feedback import FeedbackLog
@@ -9,6 +10,7 @@ from app.models.user_session_state import UserSessionState
 from app.models.wrong_question import WrongQuestionState
 
 __all__ = [
+    "AiConversationLogEntry",
     "AiConversationUsage",
     "AttemptLog",
     "FeedbackLog",

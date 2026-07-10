@@ -1,5 +1,6 @@
 """
-灌入最小的測試題庫，供 Phase 3 端到端測試使用（単語 x2、言語知識 x2、諺 x1 對）。
+灌入最小的測試題庫，供端到端測試使用（単語 x2、言語知識 x2、諺 x1 對）。
+每個 mode 內的 question_number 從 1 開始流水編號，供 AI 助教依題號查詢。
 
     python scripts/seed_sample_questions.py
 """
@@ -21,6 +22,7 @@ def main() -> None:
         {
             "mode": "vocab",
             "unit_number": 1,
+            "question_number": 1,
             "context_sentence": "彼は毎朝＿＿＿を読んでから出勤する。",
             "blank_marker": "＿＿＿",
             "options": [
@@ -36,6 +38,7 @@ def main() -> None:
         {
             "mode": "vocab",
             "unit_number": 1,
+            "question_number": 2,
             "context_sentence": "この＿＿＿はとても静かで勉強に集中できる。",
             "blank_marker": "＿＿＿",
             "options": [
@@ -52,6 +55,7 @@ def main() -> None:
         {
             "mode": "language_knowledge",
             "unit_number": 1,
+            "question_number": 1,
             "context_sentence": "彼の説明は＿＿＿要領を得ない。",
             "blank_marker": "＿＿＿",
             "options": [
@@ -67,6 +71,7 @@ def main() -> None:
         {
             "mode": "language_knowledge",
             "unit_number": 1,
+            "question_number": 2,
             "context_sentence": "彼女は＿＿＿の努力の末、試験に合格した。",
             "blank_marker": "＿＿＿",
             "options": [
@@ -83,6 +88,7 @@ def main() -> None:
         {
             "mode": "proverb",
             "unit_number": 1,
+            "question_number": 1,
             "stage": "situational_choice",
             "context_sentence": "何度も失敗しても諦めずに挑戦し続ける友人を見て、「＿＿＿」と励ました。",
             "blank_marker": "＿＿＿",

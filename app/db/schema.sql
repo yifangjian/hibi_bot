@@ -17,7 +17,9 @@ CREATE TABLE questions (
     options JSONB,  -- [{"id": "1", "text": "..."}, ...]
     correct_option TEXT,
     explanation_rule TEXT,  -- 人工標註的解釋依據，供 AI 生成回饋時參考，避免自由發揮
-    created_at TIMESTAMPTZ DEFAULT now()
+    question_number INT,  -- 人類可讀題號，同一 mode 全域唯一（不分單元），供 AI 助教輸入題號查詢；諺第二階段（reading_input）不編號，維持 NULL
+    created_at TIMESTAMPTZ DEFAULT now(),
+    CONSTRAINT unique_question_number_per_mode UNIQUE (mode, question_number)
 );
 
 -- 永久作答紀錄（只新增不刪除，是研究資料的骨幹）
@@ -80,10 +82,20 @@ CREATE TABLE menu_interaction_log (
     clicked_at TIMESTAMPTZ DEFAULT now()
 );
 
--- 使用者當下等待的文字輸入（諺第二階段讀音輸入／AI 助教題號輸入）
+-- 使用者當下等待的文字輸入（諺第二階段讀音輸入／AI 助教題號輸入／AI 助教追問中）
 CREATE TABLE user_session_state (
     user_id UUID PRIMARY KEY REFERENCES users(id),
-    pending_action TEXT,  -- 'awaiting_reading_input' / 'awaiting_ai_tutor_question_number' / NULL
+    pending_action TEXT,  -- 'awaiting_reading_input' / 'awaiting_ai_tutor_question_number' / 'in_ai_tutor_conversation' / NULL
     context JSONB,        -- 例如 {"question_id": "...", "mode": "proverb", "first_stage_option": "..."}
     updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- AI 助教對話逐則紀錄（初次解析與追問皆存於此，供追問時組成對話上下文，亦為質性研究資料）
+CREATE TABLE ai_conversation_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id),
+    question_id UUID REFERENCES questions(id),
+    role TEXT CHECK (role IN ('user', 'assistant')),
+    message TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
 );

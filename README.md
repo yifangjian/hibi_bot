@@ -2,7 +2,7 @@
 
 高級日語課堂外自主練習用 LINE Chatbot，結合產出導向法（Production-Oriented Approach, POA）與生成式 AI 即時解釋型回饋，同時作為準實驗研究的資料蒐集系統。
 
-> 目前進度：Phase 1（專案骨架）、Phase 2（圖文選單串接）、Phase 3（Flex Message 題目卡片與回饋卡片）皆已完成並上線測試過。三種模式的「開始練習 → 作答 → 回饋 → 再練一題」完整流程已可運作；回饋卡片的解釋文字目前為 `explanation_rule` 欄位的 placeholder 顯示，尚未串接 OpenAI；AI 助教與推播排程尚為 stub，留待後續階段。
+> 目前進度：Phase 1（專案骨架）、Phase 2（圖文選單串接）、Phase 3（Flex Message 題目卡片與回饋卡片）、Phase 4（OpenAI 回饋生成／AI 助教串接）皆已完成並上線測試過。回饋卡片已改由 OpenAI 依 `explanation_rule` 即時生成個別化解釋；AI 助教可依題號查詢並解析特定題目，追問對話有每日輪次限制。推播排程尚為 stub，留待後續階段。
 
 ## 1. 專案簡介
 
@@ -42,7 +42,8 @@ hibi_bot 希望透過學生每天都在使用的 LINE，把練習變成一件低
   - 諺：兩階段設計（語意／情境選擇題 → 讀音輸入題，兩階段合併判定為一筆作答紀錄）
   - 言語知識：單階段，情境例句挖空＋選項，與諺的情境式選擇題共用同一套 Flex 模板
 - **圖文選單設計**：四層選單（主選單／模式選單／開始練習子選單／錯題模式子選單），透過 LINE 原生 `richmenuswitch` 切換並同步回傳 postback 供後端記錄行為
-- **解釋型回饋機制**：作答後顯示對應該題 `explanation_rule` 的說明（目前為 placeholder 顯示，Phase 4 起改由 OpenAI API 即時生成個別化解釋）
+- **解釋型回饋機制**：作答後由 OpenAI API 根據該題的 `explanation_rule` 即時生成個別化解釋（system prompt 明確限制 AI 只能依據 `explanation_rule` 說明，不得引入題庫外的文法知識），生成結果存入 `feedback_logs`
+- **AI 助教**：使用者輸入題號後可取得該題的解析（Flex 卡片呈現，system prompt 明確禁止 markdown 語法避免在 LINE 顯示異常）；解析後進入追問模式，可直接在聊天室打字繼續問，對話歷程存入 `ai_conversation_log`，每日追問輪次有上限（預設 10 輪，逾限不呼叫 OpenAI，回覆卡片會顯示剩餘次數）；卡片下方提供「問其他題」「繼續練習」兩個按鈕方便銜接下一步
 
 ## 5. 研究背景
 
@@ -62,6 +63,8 @@ pip install -r requirements.txt
 cp .env.example .env
 # 編輯 .env，填入 LINE_CHANNEL_SECRET、LINE_CHANNEL_ACCESS_TOKEN、
 # SUPABASE_URL、SUPABASE_KEY、OPENAI_API_KEY
+# OPENAI_MODEL 預設 gpt-5.4-mini，AI_TUTOR_DAILY_TURN_LIMIT 預設 10（AI 助教每日追問輪次上限），
+# 兩者皆可依實際情況調整，不需修改程式碼
 
 # 啟動本機伺服器
 uvicorn app.main:app --reload
@@ -87,14 +90,18 @@ python scripts/seed_sample_questions.py
 
 會建立単語 x2、言語知識 x2、諺 x1 對（語意/情境選擇 + 讀音輸入）的最小題庫。接著用測試帳號加官方帳號好友，實際跑一次：
 
-1. 點選單「単語」→「開始練習」→ 回答題目卡片上的選項 → 確認收到回饋卡片 →「再練一題」
+1. 點選單「単語」→「開始練習」→ 回答題目卡片上的選項 → 確認收到的回饋卡片是 OpenAI 生成的個別化解釋（不是 `explanation_rule` 原文）→「再練一題」
 2. 點選單「諺」→「開始練習」→ 回答第一階段選項 → 收到讀音輸入提示卡 → 直接在聊天室輸入平假名 → 確認收到合併判定後的回饋卡片
-3. 點「開始練習」子選單裡的「AI助教」→ 收到輸入題號的提示 → 輸入任意數字 → 確認收到 placeholder 回覆
+3. 點「開始練習」子選單裡的「AI助教」→ 輸入有效題號（例如 `1`）→ 確認收到該題的 AI 解析卡片 → 直接在聊天室打字繼續追問 → 確認可以連續對話，且卡片下方能看到剩餘額度、以及「問其他題」「繼續練習」按鈕
+4. 若要測試每日輪次上限：可先把 `.env` 的 `AI_TUTOR_DAILY_TURN_LIMIT` 暫時調低（例如 `2`）方便快速測試，追問超過上限後應收到「今日 AI 助教對話次數已達上限」，且不會再呼叫 OpenAI（測完記得改回原本的值）
 
 跑完後可到 Supabase 後台檢查：
 - `attempts_log`：每完成一題（諺為兩階段合併後）應新增一筆，`is_correct` 與作答內容正確；諺的紀錄 `answer_detail` 應包含兩階段細節
 - `wrong_question_state`：答錯的題目狀態為 `wrong`，答對且原本錯誤的題目應變為 `resolved`
 - `unit_progress`：該單元全部題目都作答過後 `all_attempted` 應為 `true`；錯題全部清除後 `all_wrong_resolved` 應為 `true`
+- `feedback_logs`：每次作答應新增一筆，`ai_generated_text` 有內容、`model_used` 為目前設定的模型名稱
+- `ai_conversation_log`：AI 助教的每一輪輸入/回覆都應各存一筆（`role='user'`／`role='assistant'`）
+- `ai_conversation_usage`：追問輪次應累加 `turn_count`（初次解析不計入）
 
 ## License
 
