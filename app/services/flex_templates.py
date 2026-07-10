@@ -107,6 +107,101 @@ def build_reading_input_prompt_card(question: dict[str, Any]) -> dict:
     }
 
 
+def build_daily_challenge_start_card(challenge_id: str) -> dict:
+    """每日挑戰推播卡片：提示文字 + 開始/繼續挑戰按鈕。"""
+    return {
+        "type": "bubble",
+        "size": "kilo",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": BACKGROUND,
+            "paddingAll": "20px",
+            "contents": [
+                {"type": "text", "text": "🎉 每日挑戰來了！", "weight": "bold", "size": "lg", "color": NAVY},
+                {
+                    "type": "text",
+                    "text": "完成 5 題挑戰，看看今天的表現吧！",
+                    "wrap": True,
+                    "size": "sm",
+                    "color": MUTED,
+                    "margin": "md",
+                },
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "color": NAVY,
+                    "margin": "xl",
+                    "action": {
+                        "type": "postback",
+                        "label": "開始挑戰",
+                        "data": f"action=daily_challenge_start&challenge_id={challenge_id}",
+                        "displayText": "開始挑戰",
+                    },
+                },
+            ],
+        },
+    }
+
+
+def build_challenge_question_card(question: dict[str, Any], challenge_id: str, progress_text: str) -> dict:
+    """每日挑戰的出題卡片：結構與 build_question_card 相同，但按鈕 postback 帶入
+    challenge_id（供辨識過期挑戰），上方顯示挑戰進度而非單元。"""
+    stage = question.get("stage")
+    stage_param = f"&stage={stage}" if stage else "&stage=1"
+
+    option_buttons = [
+        {
+            "type": "button",
+            "style": "primary",
+            "color": NAVY,
+            "action": {
+                "type": "postback",
+                "label": option["text"],
+                "data": (
+                    f"action=daily_challenge_answer&challenge_id={challenge_id}"
+                    f"&qid={question['id']}&opt={option['id']}{stage_param}"
+                ),
+                "displayText": option["text"],
+            },
+        }
+        for option in question.get("options") or []
+    ]
+
+    return {
+        "type": "bubble",
+        "size": "mega",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": BACKGROUND,
+            "paddingAll": "20px",
+            "contents": [
+                {"type": "text", "text": progress_text, "size": "xs", "color": MUTED},
+                {"type": "separator", "margin": "md", "color": SEPARATOR},
+                {
+                    "type": "text",
+                    "wrap": True,
+                    "margin": "lg",
+                    "size": "md",
+                    "weight": "bold",
+                    "color": NAVY,
+                    "contents": _context_sentence_contents(
+                        question.get("context_sentence") or "", question.get("blank_marker")
+                    ),
+                },
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "margin": "xl",
+                    "spacing": "md",
+                    "contents": option_buttons,
+                },
+            ],
+        },
+    }
+
+
 def build_ai_tutor_reply_card(answer_text: str, mode: str, remaining_text: Optional[str] = None) -> dict:
     """AI 助教回覆卡片（初次解析／追問共用）：內容 + 剩餘額度提示（若有）+「問其他題」／「繼續練習」按鈕。"""
     contents: list[dict] = [

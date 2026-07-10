@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 from uuid import UUID
 
-from app.services import feedback_generator, flex_templates, line_client
+from app.services import daily_challenge, feedback_generator, flex_templates, line_client
 from app.services.answer_handler import finalize_attempt
 from app.services.question_picker import get_question, option_text, pick_next_question
 from app.services.session_state import clear_session_state, set_session_state
@@ -103,6 +103,14 @@ def handle_answer(user_id: UUID, params: dict, reply_token: str) -> None:
     )
 
 
+def handle_daily_challenge_start(user_id: UUID, params: dict, reply_token: str) -> None:
+    daily_challenge.start_or_resume(user_id, params.get("challenge_id"), reply_token)
+
+
+def handle_daily_challenge_answer(user_id: UUID, params: dict, reply_token: str) -> None:
+    daily_challenge.handle_challenge_answer(user_id, params, reply_token)
+
+
 ACTION_HANDLERS = {
     "enter_mode": handle_enter_mode,
     "view_progress": handle_view_progress,
@@ -114,6 +122,8 @@ ACTION_HANDLERS = {
     "ai_tutor_prompt": handle_ai_tutor_prompt,
     "review_wrong": handle_review_wrong,
     "answer": handle_answer,
+    "daily_challenge_start": handle_daily_challenge_start,
+    "daily_challenge_answer": handle_daily_challenge_answer,
 }
 
 

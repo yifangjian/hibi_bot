@@ -1,7 +1,7 @@
 import re
 from uuid import UUID
 
-from app.services import ai_tutor, feedback_generator, flex_templates, line_client
+from app.services import ai_tutor, daily_challenge, feedback_generator, flex_templates, line_client
 from app.services.answer_handler import finalize_attempt
 from app.services.question_picker import get_proverb_stage2, get_question, option_text
 from app.services.session_state import clear_session_state, get_session_state
@@ -27,19 +27,13 @@ def _handle_reading_input(user_id: UUID, text: str, reply_token: str, context: d
     mode = context["mode"]
     stage1_option = context["stage1_option"]
     stage1_correct = context["stage1_correct"]
+    challenge_id = context.get("challenge_id")
 
     stage1_question = get_question(stage1_question_id)
     stage2_question = get_proverb_stage2(stage1_question_id)
 
     stage2_correct = bool(stage2_question) and text.strip() == (stage2_question.get("correct_option") or "").strip()
     is_correct = stage1_correct and stage2_correct
-
-    explanation_parts = []
-    if stage1_question and stage1_question.get("explanation_rule"):
-        explanation_parts.append(f"【第一階段】{stage1_question['explanation_rule']}")
-    if stage2_question and stage2_question.get("explanation_rule"):
-        explanation_parts.append(f"【讀音】{stage2_question['explanation_rule']}")
-    explanation_text = "\n".join(explanation_parts)
 
     attempt = finalize_attempt(
         user_id=user_id,
@@ -52,8 +46,21 @@ def _handle_reading_input(user_id: UUID, text: str, reply_token: str, context: d
             "stage2_reading_input": text,
             "stage2_correct": stage2_correct,
         },
+        daily_challenge_id=challenge_id,
     )
     clear_session_state(user_id)
+
+    if challenge_id:
+        # 每日挑戰的一題：不顯示回饋卡片，直接推進到下一題／完成流程
+        daily_challenge.record_answer(user_id, challenge_id, stage1_question["id"], is_correct, reply_token)
+        return
+
+    explanation_parts = []
+    if stage1_question and stage1_question.get("explanation_rule"):
+        explanation_parts.append(f"【第一階段】{stage1_question['explanation_rule']}")
+    if stage2_question and stage2_question.get("explanation_rule"):
+        explanation_parts.append(f"【讀音】{stage2_question['explanation_rule']}")
+    explanation_text = "\n".join(explanation_parts)
 
     stage1_selected_text = option_text(stage1_question, stage1_option)
     stage1_correct_text = option_text(stage1_question, stage1_question.get("correct_option"))

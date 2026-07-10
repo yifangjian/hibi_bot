@@ -2,7 +2,7 @@
 
 高級日語課堂外自主練習用 LINE Chatbot，結合產出導向法（Production-Oriented Approach, POA）與生成式 AI 即時解釋型回饋，同時作為準實驗研究的資料蒐集系統。
 
-> 目前進度：Phase 1（專案骨架）、Phase 2（圖文選單串接）、Phase 3（Flex Message 題目卡片與回饋卡片）、Phase 4（OpenAI 回饋生成／AI 助教串接）皆已完成並上線測試過。回饋卡片已改由 OpenAI 依 `explanation_rule` 即時生成個別化解釋；AI 助教可依題號查詢並解析特定題目，追問對話有每日輪次限制。推播排程尚為 stub，留待後續階段。
+> 目前進度：Phase 1（專案骨架）、Phase 2（圖文選單串接）、Phase 3（Flex Message 題目卡片與回饋卡片）、Phase 4（OpenAI 回饋生成／AI 助教串接）、Phase 5（每日挑戰推播）皆已完成並上線測試過。回饋卡片已改由 OpenAI 依 `explanation_rule` 即時生成個別化解釋；AI 助教可依題號查詢並解析特定題目，追問對話有每日輪次限制；系統每天固定時間主動推播「每日挑戰」，使用者完成後會收到動態生成的圖卡。
 
 ## 1. 專案簡介
 
@@ -20,6 +20,7 @@ hibi_bot 希望透過學生每天都在使用的 LINE，把練習變成一件低
 | LINE 介面 | LINE Messaging API（line-bot-sdk v3） |
 | 資料庫 | Supabase（PostgreSQL） |
 | AI 回饋生成 | OpenAI API（預設 `gpt-5.4-mini`，依前導試行結果可調整） |
+| 完成圖卡生成 | Pillow（動態產生圖片）＋ Supabase Storage（public bucket 存放並取得公開網址） |
 | 部署 | Railway |
 | 推播排程 | Railway Cron Job 定時呼叫內部端點（不使用常駐 APScheduler，避免部署重啟導致排程遺失） |
 
@@ -44,6 +45,7 @@ hibi_bot 希望透過學生每天都在使用的 LINE，把練習變成一件低
 - **圖文選單設計**：四層選單（主選單／模式選單／開始練習子選單／錯題模式子選單），透過 LINE 原生 `richmenuswitch` 切換並同步回傳 postback 供後端記錄行為
 - **解釋型回饋機制**：作答後由 OpenAI API 根據該題的 `explanation_rule` 即時生成個別化解釋（system prompt 明確限制 AI 只能依據 `explanation_rule` 說明，不得引入題庫外的文法知識），生成結果存入 `feedback_logs`
 - **AI 助教**：使用者輸入題號後可取得該題的解析（Flex 卡片呈現，system prompt 明確禁止 markdown 語法避免在 LINE 顯示異常）；解析後進入追問模式，可直接在聊天室打字繼續問，對話歷程存入 `ai_conversation_log`，每日追問輪次有上限（預設 10 輪，逾限不呼叫 OpenAI，回覆卡片會顯示剩餘次數）；卡片下方提供「問其他題」「繼續練習」兩個按鈕方便銜接下一步
+- **每日挑戰**：Railway Cron 每天固定時間（台灣時間中午 12:00）為每位使用者隨機產生一份橫跨三模式、最多 5 題的挑戰並推播；每題作答同步寫入對應模式的既有進度系統（`attempts_log`／`wrong_question_state`／`unit_progress`，與自主練習共用同一套邏輯），完成後生成含使用者名稱、答對率、日期的圖卡（Pillow 動態產生、存於 Supabase Storage），選單自動切回主選單；中途離開可從聊天室的舊卡片接續作答，跨天則視為過期
 
 ## 5. 研究背景
 
@@ -102,6 +104,46 @@ python scripts/seed_sample_questions.py
 - `feedback_logs`：每次作答應新增一筆，`ai_generated_text` 有內容、`model_used` 為目前設定的模型名稱
 - `ai_conversation_log`：AI 助教的每一輪輸入/回覆都應各存一筆（`role='user'`／`role='assistant'`）
 - `ai_conversation_usage`：追問輪次應累加 `turn_count`（初次解析不計入）
+
+**Supabase Storage 設置（每日挑戰完成圖卡用）**：需要一個 public bucket 存放動態產生的完成圖卡。在 Supabase 後台的 Storage 頁面手動建立，或用 Python 直接建立：
+
+```python
+from supabase import create_client
+from storage3.types import CreateOrUpdateBucketOptions
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+supabase.storage.create_bucket(
+    id="completion-cards",
+    name="completion-cards",
+    options=CreateOrUpdateBucketOptions(public=True, file_size_limit=5 * 1024 * 1024, allowed_mime_types=["image/png"]),
+)
+```
+
+bucket 名稱固定為 `completion-cards`（寫死在 `app/services/completion_card_generator.py`），必須設為 public 才能讓 LINE 的 Image Message 讀取到圖片網址。完成圖卡使用的中文字型（`assets/fonts/NotoSansTC-Bold.otf`）已隨 repo 附上，不需要額外安裝系統字型（Railway 的 Linux 容器不會有 macOS 系統字型，所以特別包進 repo 裡確保部署後仍能正確顯示中文）。
+
+**Railway Cron 設置（每日推播）**：
+
+1. `.env` 設定 `INTERNAL_CRON_SECRET`（自訂一組隨機字串，例如 `openssl rand -hex 32`），Railway 服務的環境變數也要設定同樣的值
+2. 在 Railway 專案裡新增一個 Cron Job，排程設定為每天 UTC 04:00（對應台灣時間 UTC+8 中午 12:00）：
+   ```
+   0 4 * * *
+   ```
+3. Cron Job 執行的指令是對內部端點發送 POST 請求，帶上密鑰標頭：
+   ```bash
+   curl -X POST https://<your-railway-app>.up.railway.app/internal/push-daily \
+     -H "X-Cron-Secret: $INTERNAL_CRON_SECRET"
+   ```
+4. 本機測試不用等到中午，可以直接手動觸發（伺服器跑在本機、`.env` 已設定 `INTERNAL_CRON_SECRET` 的前提下）：
+   ```bash
+   curl -X POST http://localhost:8000/internal/push-daily \
+     -H "X-Cron-Secret: <你在 .env 設定的值>"
+   ```
+   回應會是 `{"users": N, "pushed": M}`，`pushed` 是實際成功推播的人數（若某位使用者三個模式當下輪次都沒有剩餘題目，會被排除在外，不視為錯誤）。
+
+跑完後可到 Supabase 後台檢查：
+- `daily_challenge`：應新增一筆，`questions` 是決定好的題目順序（最多 5 題，橫跨三模式且不重複），`current_index`／`results`／`completed` 隨作答進度更新
+- `push_log`：應新增一筆，`challenge_id` 對應剛才產生的挑戰
+- 完成挑戰後，`attempts_log` 裡對應的幾筆應該都有 `daily_challenge_id`（指向這次挑戰）且 `pushed_at` 有值（等於 `push_log.pushed_at`）；相對地，透過「開始練習」自主作答的紀錄 `daily_challenge_id`／`pushed_at` 應維持 `NULL`
 
 ## License
 

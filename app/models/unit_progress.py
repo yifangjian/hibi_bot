@@ -11,4 +11,5 @@ class UnitProgress(BaseModel):
     unit_number: int
     all_attempted: bool = False
     all_wrong_resolved: bool = False
+    current_round: int = 1
     updated_at: datetime

@@ -17,3 +17,5 @@ class AttemptLog(BaseModel):
     pushed_at: Optional[datetime] = None
     responded_at: datetime
     answer_detail: Optional[dict[str, Any]] = None
+    round_number: int = 1
+    daily_challenge_id: Optional[UUID] = None
