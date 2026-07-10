@@ -15,5 +15,7 @@ class Settings(BaseSettings):
 
     ai_tutor_daily_turn_limit: int = 10
 
+    internal_cron_secret: str = ""
+
 
 settings = Settings()

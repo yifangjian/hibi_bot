@@ -22,6 +22,20 @@ CREATE TABLE questions (
     CONSTRAINT unique_question_number_per_mode UNIQUE (mode, question_number)
 );
 
+-- 每日挑戰（每天固定時間推播，橫跨三模式隨機抽題，最多 5 題）
+CREATE TABLE daily_challenge (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id),
+    challenge_date DATE NOT NULL,
+    questions JSONB NOT NULL,             -- 產生時就決定好的題目順序 [{"mode": "vocab", "question_id": "..."}, ...]
+    results JSONB NOT NULL DEFAULT '[]',  -- 已作答部分依序累加 [{"question_id": "...", "is_correct": true}, ...]
+    current_index INT NOT NULL DEFAULT 0, -- 目前進行到第幾題（0-based）
+    completed BOOLEAN NOT NULL DEFAULT false,
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (user_id, challenge_date)
+);
+
 -- 永久作答紀錄（只新增不刪除，是研究資料的骨幹）
 CREATE TABLE attempts_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -32,7 +46,9 @@ CREATE TABLE attempts_log (
     attempt_type TEXT CHECK (attempt_type IN ('first', 'review')),
     pushed_at TIMESTAMPTZ,   -- 若為系統推播觸發則有值，使用者自發練習則為 NULL
     responded_at TIMESTAMPTZ DEFAULT now(),
-    answer_detail JSONB  -- 諺兩階段合併判定明細：{stage1_option, stage1_correct, stage2_reading_input, stage2_correct}；其他模式為 NULL
+    answer_detail JSONB,  -- 諺兩階段合併判定明細：{stage1_option, stage1_correct, stage2_reading_input, stage2_correct}；其他模式為 NULL
+    round_number INT NOT NULL DEFAULT 1,  -- 寫入時帶入當下 unit_progress.current_round，供重置後區分輪次
+    daily_challenge_id UUID REFERENCES daily_challenge(id)  -- 有值代表這是每日挑戰的一題；使用者自發練習則為 NULL
 );
 
 -- 錯題狀態（可變，反映當下的錯題列表）
@@ -51,6 +67,7 @@ CREATE TABLE unit_progress (
     unit_number INT NOT NULL,
     all_attempted BOOLEAN DEFAULT false,
     all_wrong_resolved BOOLEAN DEFAULT false,
+    current_round INT NOT NULL DEFAULT 1,  -- 重置（Phase 6）時 +1，並把 all_attempted/all_wrong_resolved 打回 false
     updated_at TIMESTAMPTZ DEFAULT now(),
     PRIMARY KEY (user_id, mode, unit_number)
 );
@@ -98,4 +115,13 @@ CREATE TABLE ai_conversation_log (
     role TEXT CHECK (role IN ('user', 'assistant')),
     message TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 推播事件本身的紀錄（與 attempts_log 分開：使用者可能收到推播卻完全沒回應，
+-- 這種「已推播未作答」狀態本身就是研究問題二的重要資料，不能只在作答時才留紀錄）
+CREATE TABLE push_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id),
+    challenge_id UUID REFERENCES daily_challenge(id),
+    pushed_at TIMESTAMPTZ DEFAULT now()
 );
