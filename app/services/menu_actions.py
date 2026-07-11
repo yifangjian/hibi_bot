@@ -110,10 +110,13 @@ def handle_review_answer(user_id: UUID, params: dict, reply_token: str) -> None:
         explanation_rule=question.get("explanation_rule") or "",
         is_correct=is_correct,
     )
+    example_sentence = feedback_generator.extract_example_sentence(question.get("explanation_rule"))
     line_client.reply_flex(
         reply_token,
         alt_text="複習結果",
-        contents=flex_templates.build_feedback_card(is_correct, feedback_text, mode, retry_action="review_wrong"),
+        contents=flex_templates.build_feedback_card(
+            is_correct, feedback_text, mode, retry_action="review_wrong", example_sentence=example_sentence
+        ),
     )
 
 
@@ -156,10 +159,13 @@ def handle_answer(user_id: UUID, params: dict, reply_token: str) -> None:
         explanation_rule=question.get("explanation_rule") or "",
         is_correct=is_correct,
     )
+    example_sentence = feedback_generator.extract_example_sentence(question.get("explanation_rule"))
     line_client.reply_flex(
         reply_token,
         alt_text="答題結果",
-        contents=flex_templates.build_feedback_card(is_correct, feedback_text, question["mode"]),
+        contents=flex_templates.build_feedback_card(
+            is_correct, feedback_text, question["mode"], example_sentence=example_sentence
+        ),
     )
 
 

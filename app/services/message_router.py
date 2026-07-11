@@ -78,11 +78,15 @@ def _handle_reading_input(user_id: UUID, text: str, reply_token: str, context: d
         is_correct=is_correct,
     )
 
+    example_sentence = feedback_generator.extract_example_sentence(stage1_question.get("explanation_rule"))
+
     retry_action = "review_wrong" if attempt_type == "review" else "next_question"
     line_client.reply_flex(
         reply_token,
         alt_text="答題結果",
-        contents=flex_templates.build_feedback_card(is_correct, feedback_text, mode, retry_action=retry_action),
+        contents=flex_templates.build_feedback_card(
+            is_correct, feedback_text, mode, retry_action=retry_action, example_sentence=example_sentence
+        ),
     )
 
 
