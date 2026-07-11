@@ -2,7 +2,7 @@ from typing import Any, Optional
 from uuid import UUID
 
 from app.db.client import supabase
-from app.services.progress import update_unit_progress
+from app.services.progress import update_scope_progress
 
 
 def _get_challenge_pushed_at(daily_challenge_id: Optional[str]) -> Optional[str]:
@@ -21,13 +21,13 @@ def _get_challenge_pushed_at(daily_challenge_id: Optional[str]) -> Optional[str]
     return rows[0]["pushed_at"] if rows else None
 
 
-def _get_current_round(user_id: UUID, mode: str, unit_number: int) -> int:
+def _get_current_round(user_id: UUID, mode: str, exam_scope: str) -> int:
     rows = (
-        supabase.table("unit_progress")
+        supabase.table("scope_progress")
         .select("current_round")
         .eq("user_id", str(user_id))
         .eq("mode", mode)
-        .eq("unit_number", unit_number)
+        .eq("exam_scope", exam_scope)
         .execute()
         .data
     )
@@ -43,13 +43,13 @@ def finalize_attempt(
     attempt_type: str = "first",
     daily_challenge_id: Optional[str] = None,
 ) -> dict[str, Any]:
-    """寫入一筆 attempts_log，更新 wrong_question_state 與 unit_progress。
+    """寫入一筆 attempts_log，更新 wrong_question_state 與 scope_progress。
 
     question 為該題的「代表列」：単語/言語知識為題目本身，諺則為第一階段列
     （整題的識別以第一階段的 id 為準）。daily_challenge_id 有值代表這是每日挑戰的一題。
     """
     pushed_at = _get_challenge_pushed_at(daily_challenge_id)
-    round_number = _get_current_round(user_id, question["mode"], question["unit_number"])
+    round_number = _get_current_round(user_id, question["mode"], question["exam_scope"])
 
     inserted = (
         supabase.table("attempts_log")
@@ -86,6 +86,6 @@ def finalize_attempt(
                 "user_id", str(user_id)
             ).eq("question_id", question["id"]).execute()
 
-    update_unit_progress(user_id, question["mode"], question["unit_number"])
+    update_scope_progress(user_id, question["mode"], question["exam_scope"])
 
     return inserted.data[0]

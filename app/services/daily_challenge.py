@@ -1,13 +1,13 @@
 import logging
 import random
 from datetime import date, datetime, timezone
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from app.db.client import supabase
 from app.services import completion_card_generator, flex_templates, line_client
 from app.services.answer_handler import finalize_attempt
-from app.services.question_picker import get_question
+from app.services.question_picker import get_current_scope_and_round, get_available_questions_in_scope, get_question
 from app.services.session_state import set_session_state
 
 logger = logging.getLogger("hibi_bot.daily_challenge")
@@ -16,70 +16,12 @@ MODES = ["vocab", "proverb", "language_knowledge"]
 CHALLENGE_SIZE = 5
 
 
-def _get_current_unit_and_round(user_id: str, mode: str) -> tuple[Optional[int], int]:
-    """回傳 (unit_number, current_round)。新使用者（無 unit_progress 紀錄）預設從該
-    模式的第一個單元、第 1 輪開始；否則挑第一個「尚未全部作答完」的單元。若所有已知
-    單元都已全部作答完，維持在最後一個單元（等 Phase 6 重置邏輯接上後才會推進輪次）。
-    """
-    progress = (
-        supabase.table("unit_progress")
-        .select("*")
-        .eq("user_id", user_id)
-        .eq("mode", mode)
-        .order("unit_number")
-        .execute()
-        .data
-    )
-    if not progress:
-        first_question = (
-            supabase.table("questions")
-            .select("unit_number")
-            .eq("mode", mode)
-            .order("unit_number")
-            .limit(1)
-            .execute()
-            .data
-        )
-        if not first_question:
-            return None, 1
-        return first_question[0]["unit_number"], 1
-
-    for row in progress:
-        if not row["all_attempted"]:
-            return row["unit_number"], row["current_round"]
-
-    last = progress[-1]
-    return last["unit_number"], last["current_round"]
-
-
 def _available_questions_for_mode(user_id: str, mode: str) -> list[dict[str, Any]]:
     """這個模式目前輪次還沒作答過的題目（依 question_number 排序）。"""
-    unit_number, current_round = _get_current_unit_and_round(user_id, mode)
-    if unit_number is None:
+    exam_scope, current_round = get_current_scope_and_round(user_id, mode)
+    if exam_scope is None:
         return []
-
-    unit_questions = (
-        supabase.table("questions")
-        .select("*")
-        .eq("mode", mode)
-        .eq("unit_number", unit_number)
-        .is_("parent_question_id", "null")
-        .order("question_number")
-        .execute()
-        .data
-    )
-
-    attempted_ids_this_round = {
-        row["question_id"]
-        for row in supabase.table("attempts_log")
-        .select("question_id")
-        .eq("user_id", user_id)
-        .eq("round_number", current_round)
-        .execute()
-        .data
-    }
-
-    return [q for q in unit_questions if q["id"] not in attempted_ids_this_round]
+    return get_available_questions_in_scope(user_id, mode, exam_scope, current_round)
 
 
 def generate_challenge_for_user(user_id: str, challenge_date: date) -> dict[str, Any]:

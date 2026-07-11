@@ -16,7 +16,7 @@ class QuestionOption(BaseModel):
 class Question(BaseModel):
     id: UUID
     mode: Mode
-    unit_number: int
+    exam_scope: str
     stage: Optional[Stage] = None
     parent_question_id: Optional[UUID] = None
     context_sentence: Optional[str] = None

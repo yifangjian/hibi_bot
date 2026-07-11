@@ -2,7 +2,7 @@
 
 高級日語課堂外自主練習用 LINE Chatbot，結合產出導向法（Production-Oriented Approach, POA）與生成式 AI 即時解釋型回饋，同時作為準實驗研究的資料蒐集系統。
 
-> 目前進度：Phase 1（專案骨架）、Phase 2（圖文選單串接）、Phase 3（Flex Message 題目卡片與回饋卡片）、Phase 4（OpenAI 回饋生成／AI 助教串接）、Phase 5（每日挑戰推播）皆已完成並上線測試過。回饋卡片已改由 OpenAI 依 `explanation_rule` 即時生成個別化解釋；AI 助教可依題號查詢並解析特定題目，追問對話有每日輪次限制；系統每天固定時間主動推播「每日挑戰」，使用者完成後會收到動態生成的圖卡。
+> 目前進度：Phase 1～6 皆已完成並上線測試過。回饋卡片已改由 OpenAI 依 `explanation_rule` 即時生成個別化解釋；AI 助教可依題號查詢並解析特定題目，追問對話有每日輪次限制；系統每天固定時間主動推播「每日挑戰」，使用者完成後會收到動態生成的圖卡；重置、進度查詢、錯題複習等核心練習迴圈也已完整串接。至此 hibi_bot 的核心功能已完整，後續重點轉為正式題庫整理與前導試行。
 
 ## 1. 專案簡介
 
@@ -45,7 +45,10 @@ hibi_bot 希望透過學生每天都在使用的 LINE，把練習變成一件低
 - **圖文選單設計**：四層選單（主選單／模式選單／開始練習子選單／錯題模式子選單），透過 LINE 原生 `richmenuswitch` 切換並同步回傳 postback 供後端記錄行為
 - **解釋型回饋機制**：作答後由 OpenAI API 根據該題的 `explanation_rule` 即時生成個別化解釋（system prompt 明確限制 AI 只能依據 `explanation_rule` 說明，不得引入題庫外的文法知識），生成結果存入 `feedback_logs`
 - **AI 助教**：使用者輸入題號後可取得該題的解析（Flex 卡片呈現，system prompt 明確禁止 markdown 語法避免在 LINE 顯示異常）；解析後進入追問模式，可直接在聊天室打字繼續問，對話歷程存入 `ai_conversation_log`，每日追問輪次有上限（預設 10 輪，逾限不呼叫 OpenAI，回覆卡片會顯示剩餘次數）；卡片下方提供「問其他題」「繼續練習」兩個按鈕方便銜接下一步
-- **每日挑戰**：Railway Cron 每天固定時間（台灣時間中午 12:00）為每位使用者隨機產生一份橫跨三模式、最多 5 題的挑戰並推播；每題作答同步寫入對應模式的既有進度系統（`attempts_log`／`wrong_question_state`／`unit_progress`，與自主練習共用同一套邏輯），完成後生成含使用者名稱、答對率、日期的圖卡（Pillow 動態產生、存於 Supabase Storage），選單自動切回主選單；中途離開可從聊天室的舊卡片接續作答，跨天則視為過期
+- **每日挑戰**：Railway Cron 每天固定時間（台灣時間中午 12:00）為每位使用者隨機產生一份橫跨三模式、最多 5 題的挑戰並推播；每題作答同步寫入對應模式的既有進度系統（`attempts_log`／`wrong_question_state`／`scope_progress`，與自主練習共用同一套邏輯），完成後生成含使用者名稱、答對率、日期的圖卡（Pillow 動態產生、存於 Supabase Storage），選單自動切回主選單；中途離開可從聊天室的舊卡片接續作答，跨天則視為過期
+- **錯題模式**：從 `wrong_question_state` 挑一題該模式底下狀態仍是 `wrong` 的題目複習，答對後自動標記為 `resolved` 並可連續複習下一題（`attempt_type` 記為 `review`，與一般練習的 `first` 區分）；沒有待複習的錯題時會明確告知
+- **重置**：需該範圍當下輪次「全部作答完」且「沒有任何待複習錯題」才允許，只把 `scope_progress` 的追蹤狀態打回起點（`current_round` +1），不觸碰 `attempts_log`／`wrong_question_state` 等歷史紀錄，過去每一輪的資料完整保留可供研究分析
+- **進度查詢**：一張卡片同時顯示三模式各自的範圍、輪次、本輪作答進度、待複習錯題數，以及每日挑戰「累計完成次數」（刻意不做「連續天數」，避免使用者因為某天沒使用而產生「破功」的挫折感，呼應本研究降低能力感焦慮的目標）
 
 ## 5. 研究背景
 
@@ -74,6 +77,14 @@ uvicorn app.main:app --reload
 
 **資料庫設置**：於 Supabase 專案的 SQL Editor 中執行 [`app/db/schema.sql`](app/db/schema.sql)。
 
+**考試範圍（`exam_scope`）設定**：題目不再用「單元 1、單元 2」這種假設有順序的編號分類，而是用一個文字標籤（例如「期中考」「小考3」）分組，因為實際考試範圍常常不是照單元順序切、有時甚至完全不按單元劃分。系統同一時間每個模式只會有「一個目前教學進度對應的範圍」，記錄在 `active_exam_scope` 表（`mode` 為主鍵）。目前沒有管理後台，換範圍（例如换到下一次段考的內容）直接在 Supabase SQL Editor 執行：
+
+```sql
+UPDATE active_exam_scope SET exam_scope = '期末考', updated_at = now() WHERE mode = 'vocab';
+```
+
+只要新範圍的題目用新的 `exam_scope` 值匯入 `questions` 表，`current_round` 就會自動從第 1 輪開始（沒有 `scope_progress` 紀錄時的預設值），不需要額外處理；舊範圍的所有作答歷史完整保留在 `attempts_log`，不受影響。
+
 **本機測試 LINE webhook**：由於 LINE 平台需要對外可存取的 HTTPS 端點，本機開發可使用 [ngrok](https://ngrok.com/) 建立臨時通道（`ngrok http 8000`），再將產生的網址填入 LINE Developers Console 的 Webhook URL；也可以使用 LINE 官方提供的 Webhook 驗證工具（Console 內的「Verify」按鈕）確認端點是否正常回應。
 
 **圖文選單設置**：`.env` 填好 `LINE_CHANNEL_ACCESS_TOKEN` 後，執行一次：
@@ -100,10 +111,18 @@ python scripts/seed_sample_questions.py
 跑完後可到 Supabase 後台檢查：
 - `attempts_log`：每完成一題（諺為兩階段合併後）應新增一筆，`is_correct` 與作答內容正確；諺的紀錄 `answer_detail` 應包含兩階段細節
 - `wrong_question_state`：答錯的題目狀態為 `wrong`，答對且原本錯誤的題目應變為 `resolved`
-- `unit_progress`：該單元全部題目都作答過後 `all_attempted` 應為 `true`；錯題全部清除後 `all_wrong_resolved` 應為 `true`
+- `scope_progress`：該範圍全部題目都作答過後 `all_attempted` 應為 `true`；錯題全部清除後 `all_wrong_resolved` 應為 `true`
 - `feedback_logs`：每次作答應新增一筆，`ai_generated_text` 有內容、`model_used` 為目前設定的模型名稱
 - `ai_conversation_log`：AI 助教的每一輪輸入/回覆都應各存一筆（`role='user'`／`role='assistant'`）
 - `ai_conversation_usage`：追問輪次應累加 `turn_count`（初次解析不計入）
+
+**測試錯題複習、重置、進度查詢**：
+
+1. 故意答錯一題（例如選非正確答案的選項），確認 `wrong_question_state` 出現一筆 `status='wrong'`
+2. 點模式選單的「錯題模式」→「複習錯題」→ 回答同一題選對 → 確認 `wrong_question_state` 該筆變成 `resolved`、`attempts_log` 新增一筆 `attempt_type='review'`；若還有其他錯題，「繼續複習」按鈕會接著出下一題，直到沒有錯題為止
+3. 把該範圍剩下的題目都答完（`scope_progress.all_attempted` 應變 `true`）且沒有未解決的錯題後，點「重置」→ 確認收到「已重置！你現在進入第 N 輪」，`scope_progress.current_round` +1、`all_attempted`／`all_wrong_resolved` 打回 `false`，同時 `attempts_log` 裡舊輪次的紀錄完全沒被更動
+4. 若題目/錯題都還沒完成就先點「重置」，應該收到對應的擋下訊息（「還有題目尚未作答完」或「你還有 N 題錯題尚未複習完成」），且不會有任何資料庫寫入
+5. 點主選單「我的進度」或模式選單「進度」，確認卡片顯示的三模式範圍/輪次/本輪進度/待複習錯題數，都與 Supabase 後台的即時資料一致；每日挑戰「累計完成次數」則對應 `daily_challenge` 裡 `completed=true` 的總筆數
 
 **Supabase Storage 設置（每日挑戰完成圖卡用）**：需要一個 public bucket 存放動態產生的完成圖卡。在 Supabase 後台的 Storage 頁面手動建立，或用 Python 直接建立：
 

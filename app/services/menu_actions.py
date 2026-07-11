@@ -2,9 +2,9 @@ import logging
 from typing import Optional
 from uuid import UUID
 
-from app.services import daily_challenge, feedback_generator, flex_templates, line_client
+from app.services import daily_challenge, feedback_generator, flex_templates, line_client, progress_view, reset_handler
 from app.services.answer_handler import finalize_attempt
-from app.services.question_picker import get_question, option_text, pick_next_question
+from app.services.question_picker import get_question, option_text, pick_next_question, pick_wrong_question
 from app.services.session_state import clear_session_state, set_session_state
 
 logger = logging.getLogger("hibi_bot.menu_actions")
@@ -23,7 +23,7 @@ def handle_enter_mode(user_id: UUID, params: dict, reply_token: str) -> None:
 
 
 def handle_view_progress(user_id: UUID, params: dict, reply_token: str) -> None:
-    logger.info("Stub handle_view_progress: user=%s params=%s", user_id, params)
+    progress_view.show_progress(user_id, reply_token)
 
 
 def handle_start_practice(user_id: UUID, params: dict, reply_token: str) -> None:
@@ -40,7 +40,7 @@ def handle_enter_wrong_mode(user_id: UUID, params: dict, reply_token: str) -> No
 
 
 def handle_reset_unit(user_id: UUID, params: dict, reply_token: str) -> None:
-    logger.info("Stub handle_reset_unit: user=%s params=%s", user_id, params)
+    reset_handler.handle_reset_unit(user_id, params, reply_token)
 
 
 def handle_back(user_id: UUID, params: dict, reply_token: str) -> None:
@@ -54,7 +54,67 @@ def handle_ai_tutor_prompt(user_id: UUID, params: dict, reply_token: str) -> Non
 
 
 def handle_review_wrong(user_id: UUID, params: dict, reply_token: str) -> None:
-    logger.info("Stub handle_review_wrong: user=%s params=%s", user_id, params)
+    mode = params.get("mode")
+    question = pick_wrong_question(user_id, mode)
+    if not question:
+        label = flex_templates.MODE_LABELS.get(mode, mode)
+        line_client.reply_text(reply_token, f"「{label}」目前沒有待複習的錯題囉！")
+        return
+    line_client.reply_flex(
+        reply_token,
+        alt_text="複習錯題",
+        contents=flex_templates.build_question_card(question, action="review_answer"),
+    )
+
+
+def handle_review_answer(user_id: UUID, params: dict, reply_token: str) -> None:
+    qid = params.get("qid")
+    opt = params.get("opt")
+    question = get_question(qid)
+    if not question:
+        line_client.reply_text(reply_token, "找不到這一題，請重新進入錯題模式。")
+        return
+
+    mode = question["mode"]
+    is_correct = opt == question.get("correct_option")
+
+    if mode == "proverb" and question.get("stage") in ("semantic_choice", "situational_choice"):
+        # 諺第一階段：先記錄選擇，轉入讀音輸入階段，尚未寫入 attempts_log
+        set_session_state(
+            user_id,
+            "awaiting_reading_input",
+            {
+                "question_id": question["id"],
+                "mode": "proverb",
+                "stage1_option": opt,
+                "stage1_correct": is_correct,
+                "attempt_type": "review",
+            },
+        )
+        line_client.reply_flex(
+            reply_token,
+            alt_text="請輸入讀音",
+            contents=flex_templates.build_reading_input_prompt_card(question),
+        )
+        return
+
+    # 単語 / 言語知識：單階段，直接判定並寫入（attempt_type=review，答對會把這題從 wrong 標記為 resolved）
+    attempt = finalize_attempt(
+        user_id=user_id, question=question, is_correct=is_correct, selected_option=opt, attempt_type="review"
+    )
+    feedback_text = feedback_generator.generate_and_log_feedback(
+        attempt_log_id=attempt["id"],
+        context_sentence=question.get("context_sentence") or "",
+        correct_option_text=option_text(question, question.get("correct_option")),
+        selected_option_text=option_text(question, opt),
+        explanation_rule=question.get("explanation_rule") or "",
+        is_correct=is_correct,
+    )
+    line_client.reply_flex(
+        reply_token,
+        alt_text="複習結果",
+        contents=flex_templates.build_feedback_card(is_correct, feedback_text, mode, retry_action="review_wrong"),
+    )
 
 
 def handle_answer(user_id: UUID, params: dict, reply_token: str) -> None:
@@ -122,6 +182,7 @@ ACTION_HANDLERS = {
     "ai_tutor_prompt": handle_ai_tutor_prompt,
     "review_wrong": handle_review_wrong,
     "answer": handle_answer,
+    "review_answer": handle_review_answer,
     "daily_challenge_start": handle_daily_challenge_start,
     "daily_challenge_answer": handle_daily_challenge_answer,
 }
