@@ -10,6 +10,26 @@ from app.services.session_state import clear_session_state, set_session_state
 logger = logging.getLogger("hibi_bot.menu_actions")
 
 
+def _build_feedback_text(question: dict, attempt_id: str, opt: Optional[str], is_correct: bool) -> tuple[str, Optional[str]]:
+    """回傳 (回饋文字, 例句原文)。単語模式只考讀音，答案本身沒有需要說明的細膩語感，
+    所以不呼叫 AI、不寫 feedback_logs，直接告知正確讀音；諺／言語知識維持原本的 AI
+    生成流程（依 explanation_rule 為解釋依據）。"""
+    if question["mode"] == "vocab":
+        correct_reading = option_text(question, question.get("correct_option"))
+        return f"正確讀音是「{correct_reading}」。", None
+
+    feedback_text = feedback_generator.generate_and_log_feedback(
+        attempt_log_id=attempt_id,
+        context_sentence=question.get("context_sentence") or "",
+        correct_option_text=option_text(question, question.get("correct_option")),
+        selected_option_text=option_text(question, opt),
+        explanation_rule=question.get("explanation_rule") or "",
+        is_correct=is_correct,
+    )
+    example_sentence = feedback_generator.extract_example_sentence(question.get("explanation_rule"))
+    return feedback_text, example_sentence
+
+
 def _serve_next_question(user_id: UUID, mode: Optional[str], reply_token: str) -> None:
     question = pick_next_question(user_id, mode)
     if not question:
@@ -102,15 +122,7 @@ def handle_review_answer(user_id: UUID, params: dict, reply_token: str) -> None:
     attempt = finalize_attempt(
         user_id=user_id, question=question, is_correct=is_correct, selected_option=opt, attempt_type="review"
     )
-    feedback_text = feedback_generator.generate_and_log_feedback(
-        attempt_log_id=attempt["id"],
-        context_sentence=question.get("context_sentence") or "",
-        correct_option_text=option_text(question, question.get("correct_option")),
-        selected_option_text=option_text(question, opt),
-        explanation_rule=question.get("explanation_rule") or "",
-        is_correct=is_correct,
-    )
-    example_sentence = feedback_generator.extract_example_sentence(question.get("explanation_rule"))
+    feedback_text, example_sentence = _build_feedback_text(question, attempt["id"], opt, is_correct)
     line_client.reply_flex(
         reply_token,
         alt_text="複習結果",
@@ -151,15 +163,7 @@ def handle_answer(user_id: UUID, params: dict, reply_token: str) -> None:
 
     # 単語 / 言語知識：單階段，直接判定並寫入
     attempt = finalize_attempt(user_id=user_id, question=question, is_correct=is_correct, selected_option=opt)
-    feedback_text = feedback_generator.generate_and_log_feedback(
-        attempt_log_id=attempt["id"],
-        context_sentence=question.get("context_sentence") or "",
-        correct_option_text=option_text(question, question.get("correct_option")),
-        selected_option_text=option_text(question, opt),
-        explanation_rule=question.get("explanation_rule") or "",
-        is_correct=is_correct,
-    )
-    example_sentence = feedback_generator.extract_example_sentence(question.get("explanation_rule"))
+    feedback_text, example_sentence = _build_feedback_text(question, attempt["id"], opt, is_correct)
     line_client.reply_flex(
         reply_token,
         alt_text="答題結果",

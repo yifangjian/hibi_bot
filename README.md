@@ -2,7 +2,7 @@
 
 高級日語課堂外自主練習用 LINE Chatbot，結合產出導向法（Production-Oriented Approach, POA）與生成式 AI 即時解釋型回饋，同時作為準實驗研究的資料蒐集系統。
 
-> 目前進度：Phase 1～6 皆已完成並上線測試過，核心功能完整。第一批正式題庫（諺語模式，高日暑修班期中考 100 句）已完成匯入與實測，諺語練習改為同一句諺語隨機出「語意選択」或「文脈穴埋め」其中一種第一階段題目（見下方「諺語隨機變體設計」）。後續重點轉為単語／言語知識題庫匯入與前導試行。
+> 目前進度：Phase 1～6 皆已完成並上線測試過，核心功能完整。諺語（100 句）與単語（270 個讀音題）兩批正式題庫（高日暑修班期中考）已完成匯入與實測；諺語練習改為同一句諺語隨機出「語意選択」或「文脈穴埋め」其中一種第一階段題目（見下方「諺語隨機變體設計」），単語題庫是詞彙讀音測驗形式、沒有解析內容，答題後直接顯示正確讀音、不呼叫 AI（見下方「単語題庫匯入」）。後續重點轉為言語知識題庫匯入與前導試行。
 
 ## 1. 專案簡介
 
@@ -39,11 +39,11 @@ hibi_bot 希望透過學生每天都在使用的 LINE，把練習變成一件低
 ## 4. 功能特色
 
 - **三種練習模式**
-  - 単語：單階段，情境例句挖空＋選項（選正確讀音）
+  - 単語：單階段，詞彙讀音測驗（題目為單一詞彙，選項為可能的讀音）——原始設計是「情境例句挖空＋選項」，但目前匯入的實際題庫是純讀音測驗形式，見下方「単語題庫匯入」
   - 諺：兩階段設計（語意／情境選擇題 → 讀音輸入題，兩階段合併判定為一筆作答紀錄）
   - 言語知識：單階段，情境例句挖空＋選項，與諺的情境式選擇題共用同一套 Flex 模板
 - **圖文選單設計**：四層選單（主選單／模式選單／開始練習子選單／錯題模式子選單），透過 LINE 原生 `richmenuswitch` 切換並同步回傳 postback 供後端記錄行為
-- **解釋型回饋機制**：作答後由 OpenAI API 根據該題的 `explanation_rule` 即時生成個別化解釋（system prompt 明確限制 AI 只能依據 `explanation_rule` 說明，不得引入題庫外的文法知識），生成結果存入 `feedback_logs`
+- **解釋型回饋機制**：作答後由 OpenAI API 根據該題的 `explanation_rule` 即時生成個別化解釋（system prompt 明確限制 AI 只能依據 `explanation_rule` 說明，不得引入題庫外的文法知識；也明確要求說明句子本身要翻譯成繁體中文，不能把解釋依據裡的日文原句直接照抄進回覆），生成結果存入 `feedback_logs`。**単語模式例外**：単語題庫目前是純讀音測驗、沒有解析內容可以當依據，答對答錯本身也沒有需要 AI 說明的細膩語感，所以答題後直接顯示正確讀音，不呼叫 OpenAI、不寫入 `feedback_logs`（見 `app/services/menu_actions.py` 的 `_build_feedback_text`）
 - **AI 助教**：使用者輸入題號後可取得該題的解析（Flex 卡片呈現，system prompt 明確禁止 markdown 語法避免在 LINE 顯示異常）；解析後進入追問模式，可直接在聊天室打字繼續問，對話歷程存入 `ai_conversation_log`，每日追問輪次有上限（預設 10 輪，逾限不呼叫 OpenAI，回覆卡片會顯示剩餘次數）；卡片下方提供「問其他題」「繼續練習」兩個按鈕方便銜接下一步
 - **每日挑戰**：Railway Cron 每天固定時間（台灣時間中午 12:00）為每位使用者隨機產生一份橫跨三模式、最多 5 題的挑戰並推播；每題作答同步寫入對應模式的既有進度系統（`attempts_log`／`wrong_question_state`／`scope_progress`，與自主練習共用同一套邏輯），完成後生成含使用者名稱、答對率、日期的圖卡（Pillow 動態產生、存於 Supabase Storage），選單自動切回主選單；中途離開可從聊天室的舊卡片接續作答，跨天則視為過期
 - **錯題模式**：從 `wrong_question_state` 挑一題該模式底下狀態仍是 `wrong` 的題目複習，答對後自動標記為 `resolved` 並可連續複習下一題（`attempt_type` 記為 `review`，與一般練習的 `first` 區分）；沒有待複習的錯題時會明確告知
@@ -118,6 +118,24 @@ python scripts/import_proverb_questions.py \
 - 要**修正／更新**某個 `exam_scope` 已匯入的題庫內容（例如改了幾題的解析）：這支腳本不會做任何刪除，需要手動決定是否清除該範圍的舊資料。動手前務必先查 `attempts_log`／`wrong_question_state` 有沒有已經參照這些題目的作答紀錄——如果有（代表已經有人開始作答這個範圍），刪除前必須先確認清楚，不能直接執行，避免破壞已經產生的研究資料。
 
 **選項文字長度注意事項**：出題卡片的選項並非用 LINE 的 button 元件呈現（button 的可見文字取自 `action.label`，官方硬性限制最多 20 字元，完整句子形式的選項會被截斷），而是改用可完整顯示文字的點擊區塊（box + action，見 [`app/services/flex_templates.py`](app/services/flex_templates.py) 的 `_option_box`）。之後不管哪個模式匯入新題庫，選項文字長度都不受這個限制影響。
+
+### 単語題庫匯入（`scripts/import_vocab_questions.py`）
+
+用途：讀取 `data/raw/` 底下的 Excel 檔案（單一工作表：題目／選項A-D／正確答案），寫入 `questions` 表。這批題目是「詞彙讀音測驗」形式——題目欄位是單一詞彙（例如「短い」），不是情境例句，也沒有解析欄位。
+
+```bash
+# 先跑小批次（前 5 個詞）確認流程沒問題
+python scripts/import_vocab_questions.py \
+    --file "data/raw/檔名.xlsx" --exam-scope "範圍名稱" --limit 5
+
+# 確認沒問題後，正式全量匯入
+python scripts/import_vocab_questions.py \
+    --file "data/raw/檔名.xlsx" --exam-scope "範圍名稱"
+```
+
+重複使用注意事項與 `import_proverb_questions.py` 相同（全量匯入、換範圍要換新的 `--exam-scope`、修改舊資料前要先確認 `attempts_log` 有沒有參照）。
+
+**因為這批資料沒有解析內容，単語模式的回饋機制跟諺／言語知識不同**：単語只考「這個詞怎麼唸」，答對答錯本身沒有需要 AI 說明的細膩語感，所以答題後直接顯示「正確讀音是「〇〇」。」，不呼叫 OpenAI、不寫入 `feedback_logs`。出題卡片因為沒有情境句可以挖空，會多顯示一句「請選出正確讀音」的提示文字（見 `build_question_card` 裡 `mode == "vocab" and not blank_marker` 的判斷）。如果之後単語題庫換成「情境例句挖空＋選項」的格式（沿用 Phase 1 原始設計），需要同時匯入 `explanation_rule` 並把 `_build_feedback_text` 的判斷改回呼叫 AI 生成，目前這個判斷是寫死依 `mode == "vocab"`，不是依「有沒有解析」動態判斷。
 
 **本機測試 LINE webhook**：由於 LINE 平台需要對外可存取的 HTTPS 端點，本機開發可使用 [ngrok](https://ngrok.com/) 建立臨時通道（`ngrok http 8000`），再將產生的網址填入 LINE Developers Console 的 Webhook URL；也可以使用 LINE 官方提供的 Webhook 驗證工具（Console 內的「Verify」按鈕）確認端點是否正常回應。
 

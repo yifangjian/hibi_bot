@@ -67,6 +67,47 @@ def build_question_card(question: dict[str, Any], action: str = "answer") -> dic
         for option in question.get("options") or []
     ]
 
+    body_contents: list[dict] = [
+        {
+            "type": "text",
+            "size": "xs",
+            "contents": [
+                {"type": "span", "text": f"範圍：{question['exam_scope']}・", "color": MUTED},
+                {"type": "span", "text": f"第 {question['question_number']} 題", "color": CORAL, "weight": "bold"},
+            ],
+        },
+        {"type": "separator", "margin": "md", "color": SEPARATOR},
+    ]
+
+    if question["mode"] == "vocab" and not question.get("blank_marker"):
+        # 單字讀音測驗（詞彙本身，沒有情境句可挖空）：加一句提示文字說明這是在考讀音
+        body_contents.append(
+            {"type": "text", "text": "請選出正確讀音", "size": "xs", "color": MUTED, "margin": "md"}
+        )
+
+    body_contents.append(
+        {
+            "type": "text",
+            "wrap": True,
+            "margin": "lg",
+            "size": "md",
+            "weight": "bold",
+            "color": NAVY,
+            "contents": _context_sentence_contents(
+                question.get("context_sentence") or "", question.get("blank_marker")
+            ),
+        }
+    )
+    body_contents.append(
+        {
+            "type": "box",
+            "layout": "vertical",
+            "margin": "xl",
+            "spacing": "md",
+            "contents": option_buttons,
+        }
+    )
+
     return {
         "type": "bubble",
         "size": "mega",
@@ -75,35 +116,7 @@ def build_question_card(question: dict[str, Any], action: str = "answer") -> dic
             "layout": "vertical",
             "backgroundColor": BACKGROUND,
             "paddingAll": "20px",
-            "contents": [
-                {
-                    "type": "text",
-                    "size": "xs",
-                    "contents": [
-                        {"type": "span", "text": f"範圍：{question['exam_scope']}・", "color": MUTED},
-                        {"type": "span", "text": f"第 {question['question_number']} 題", "color": CORAL, "weight": "bold"},
-                    ],
-                },
-                {"type": "separator", "margin": "md", "color": SEPARATOR},
-                {
-                    "type": "text",
-                    "wrap": True,
-                    "margin": "lg",
-                    "size": "md",
-                    "weight": "bold",
-                    "color": NAVY,
-                    "contents": _context_sentence_contents(
-                        question.get("context_sentence") or "", question.get("blank_marker")
-                    ),
-                },
-                {
-                    "type": "box",
-                    "layout": "vertical",
-                    "margin": "xl",
-                    "spacing": "md",
-                    "contents": option_buttons,
-                },
-            ],
+            "contents": body_contents,
         },
     }
 
