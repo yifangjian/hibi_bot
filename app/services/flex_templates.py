@@ -76,7 +76,14 @@ def build_question_card(question: dict[str, Any], action: str = "answer") -> dic
             "backgroundColor": BACKGROUND,
             "paddingAll": "20px",
             "contents": [
-                {"type": "text", "text": f"範圍：{question['exam_scope']}", "size": "xs", "color": MUTED},
+                {
+                    "type": "text",
+                    "size": "xs",
+                    "contents": [
+                        {"type": "span", "text": f"範圍：{question['exam_scope']}・", "color": MUTED},
+                        {"type": "span", "text": f"第 {question['question_number']} 題", "color": CORAL, "weight": "bold"},
+                    ],
+                },
                 {"type": "separator", "margin": "md", "color": SEPARATOR},
                 {
                     "type": "text",
@@ -195,7 +202,14 @@ def build_challenge_question_card(question: dict[str, Any], challenge_id: str, p
             "backgroundColor": BACKGROUND,
             "paddingAll": "20px",
             "contents": [
-                {"type": "text", "text": progress_text, "size": "xs", "color": MUTED},
+                {
+                    "type": "text",
+                    "size": "xs",
+                    "contents": [
+                        {"type": "span", "text": f"{progress_text}・", "color": MUTED},
+                        {"type": "span", "text": f"第 {question['question_number']} 題", "color": CORAL, "weight": "bold"},
+                    ],
+                },
                 {"type": "separator", "margin": "md", "color": SEPARATOR},
                 {
                     "type": "text",
@@ -276,11 +290,64 @@ def build_ai_tutor_reply_card(answer_text: str, mode: str, remaining_text: Optio
 
 
 def build_feedback_card(
-    is_correct: bool, explanation_text: str, mode: str, retry_action: str = "next_question"
+    is_correct: bool,
+    explanation_text: str,
+    mode: str,
+    retry_action: str = "next_question",
+    example_sentence: Optional[str] = None,
 ) -> dict:
     """三模式共用的回饋卡片。retry_action 預設 "next_question"（一般練習的「再練一題」），
-    複習錯題模式會傳入 "review_wrong"，按鈕文字與行為會跟著切換成「繼續複習」。"""
+    複習錯題模式會傳入 "review_wrong"，按鈕文字與行為會跟著切換成「繼續複習」。
+    example_sentence 是解析裡的【例文】原文（未經 AI 改寫），AI 生成回饋常會把例句省略掉，
+    所以額外原文顯示；沒有的話（例如非諺語模式）就不顯示這個區塊。
+    """
     retry_label = "繼續複習" if retry_action == "review_wrong" else "再練一題"
+
+    contents: list[dict] = [
+        {
+            "type": "text",
+            "text": "✓ 答對了" if is_correct else "✗ 答錯了",
+            "weight": "bold",
+            "size": "xl",
+            "color": NAVY if is_correct else CORAL,
+        },
+        {"type": "separator", "margin": "md", "color": SEPARATOR},
+        {
+            "type": "text",
+            "text": explanation_text or "（尚無解釋內容）",
+            "wrap": True,
+            "margin": "lg",
+            "size": "sm",
+            "color": NAVY,
+        },
+    ]
+
+    if example_sentence:
+        contents.append(
+            {
+                "type": "text",
+                "text": f"例句：{example_sentence}",
+                "wrap": True,
+                "margin": "md",
+                "size": "xs",
+                "color": MUTED,
+            }
+        )
+
+    contents.append(
+        {
+            "type": "button",
+            "style": "primary",
+            "color": NAVY,
+            "margin": "xl",
+            "action": {
+                "type": "postback",
+                "label": retry_label,
+                "data": f"action={retry_action}&mode={mode}",
+                "displayText": retry_label,
+            },
+        }
+    )
 
     return {
         "type": "bubble",
@@ -290,36 +357,7 @@ def build_feedback_card(
             "layout": "vertical",
             "backgroundColor": BACKGROUND,
             "paddingAll": "20px",
-            "contents": [
-                {
-                    "type": "text",
-                    "text": "✓ 答對了" if is_correct else "✗ 答錯了",
-                    "weight": "bold",
-                    "size": "xl",
-                    "color": NAVY if is_correct else CORAL,
-                },
-                {"type": "separator", "margin": "md", "color": SEPARATOR},
-                {
-                    "type": "text",
-                    "text": explanation_text or "（尚無解釋內容）",
-                    "wrap": True,
-                    "margin": "lg",
-                    "size": "sm",
-                    "color": NAVY,
-                },
-                {
-                    "type": "button",
-                    "style": "primary",
-                    "color": NAVY,
-                    "margin": "xl",
-                    "action": {
-                        "type": "postback",
-                        "label": retry_label,
-                        "data": f"action={retry_action}&mode={mode}",
-                        "displayText": retry_label,
-                    },
-                },
-            ],
+            "contents": contents,
         },
     }
 
