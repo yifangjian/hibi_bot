@@ -10,17 +10,16 @@ def get_question(question_id: str) -> Optional[dict[str, Any]]:
     return res.data[0] if res.data else None
 
 
-def get_proverb_stage2(stage1_question_id: str) -> Optional[dict[str, Any]]:
-    """諺第二階段（読み方）：與第一階段共用同一個 question_number，用 stage 區分。"""
-    stage1 = get_question(stage1_question_id)
-    if not stage1:
-        return None
+def get_proverb_stage2(stage1_question: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """諺第二階段（読み方）：與第一階段共用同一個 question_number，用 stage 區分。
+    傳入呼叫端已經拿到的第一階段題目 dict（而不是 id 再查一次），避免重複查詢同一筆資料。
+    """
     res = (
         supabase.table("questions")
         .select("*")
         .eq("mode", "proverb")
-        .eq("exam_scope", stage1["exam_scope"])
-        .eq("question_number", stage1["question_number"])
+        .eq("exam_scope", stage1_question["exam_scope"])
+        .eq("question_number", stage1_question["question_number"])
         .eq("stage", "reading_input")
         .execute()
     )
@@ -102,6 +101,27 @@ def get_scope_candidates(mode: str, exam_scope: str) -> dict[int, list[dict[str,
     return groups
 
 
+def get_scope_progress_index(mode: str, exam_scope: str) -> dict[int, list[str]]:
+    """get_scope_candidates 的輕量版，只用於進度統計（scope_progress 更新／重置條件檢查／
+    進度查詢卡片），只抓 id、question_number、stage 三個欄位，不抓完整題目內容（選項、
+    情境句等），減少不必要的資料傳輸。回傳 question_number -> [row id, ...]（諺可能有多筆）。
+    """
+    rows = (
+        supabase.table("questions")
+        .select("id, question_number, stage")
+        .eq("mode", mode)
+        .eq("exam_scope", exam_scope)
+        .execute()
+        .data
+    )
+    index: dict[int, list[str]] = {}
+    for row in rows:
+        if row.get("stage") == "reading_input":
+            continue
+        index.setdefault(row["question_number"], []).append(row["id"])
+    return index
+
+
 def _pick_representative(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return random.choice(rows) if len(rows) > 1 else rows[0]
 
@@ -165,17 +185,15 @@ def pick_wrong_question(user_id: UUID, mode: str) -> Optional[dict[str, Any]]:
     )
     if not wrong_rows:
         return None
-    wrong_ids = {row["question_id"] for row in wrong_rows}
+    wrong_ids = [row["question_id"] for row in wrong_rows]
 
     questions = (
         supabase.table("questions")
         .select("*")
         .eq("mode", mode)
+        .in_("id", wrong_ids)
         .order("question_number")
         .execute()
         .data
     )
-    for question in questions:
-        if question["id"] in wrong_ids:
-            return question
-    return None
+    return questions[0] if questions else None
