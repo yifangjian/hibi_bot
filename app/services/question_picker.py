@@ -126,15 +126,46 @@ def _pick_representative(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return random.choice(rows) if len(rows) > 1 else rows[0]
 
 
+def get_questions_by_numbers(
+    mode: str, exam_scope: str, question_numbers: list[int]
+) -> dict[int, list[dict[str, Any]]]:
+    """依指定的 question_number 清單抓完整題目內容（選項、情境句、解析等），分組回傳
+    （諺可能一個題號有多筆變體）。只抓真正要用到的題號，不是整個範圍。
+    """
+    if not question_numbers:
+        return {}
+    rows = (
+        supabase.table("questions")
+        .select("*")
+        .eq("mode", mode)
+        .eq("exam_scope", exam_scope)
+        .in_("question_number", question_numbers)
+        .execute()
+        .data
+    )
+    groups: dict[int, list[dict[str, Any]]] = {}
+    for row in rows:
+        if row.get("stage") == "reading_input":
+            continue
+        groups.setdefault(row["question_number"], []).append(row)
+    return groups
+
+
 def get_available_questions_in_scope(
-    user_id: str, mode: str, exam_scope: str, round_number: int
+    user_id: str, mode: str, exam_scope: str, round_number: int, limit: Optional[int] = None
 ) -> list[dict[str, Any]]:
     """這個範圍在目前輪次還沒作答過的題目（依 question_number 排序），一個 question_number
     回傳一筆代表列。判斷「是否已作答過」以 question_number 為準，不是以列 id 為準——諺同一
     題號不管這次隨機抽到哪個變體，只要這個題號本輪已經作答過，就不會再被選中。
+
+    先用輕量版查詢（get_scope_progress_index，只抓 id/question_number/stage）決定哪些
+    題號可用，只針對真正需要用到的題號（由 limit 決定要幾筆代表列）才去抓完整題目內容
+    （選項、情境句、解析），避免題庫變大、內容變長時（例如言語知識 600+ 題、解析動輒上百
+    字）每次選題都要整批傳輸用不到的欄位——這個函式原本會一次抓下整個範圍的完整內容，
+    但呼叫端（pick_next_question 只用第一筆、每日挑戰最多用 5 筆）從來不需要全部。
     """
-    groups = get_scope_candidates(mode, exam_scope)
-    id_to_number = {row["id"]: number for number, rows in groups.items() for row in rows}
+    index = get_scope_progress_index(mode, exam_scope)
+    id_to_number = {rid: number for number, ids in index.items() for rid in ids}
 
     attempted_ids_this_round = {
         row["question_id"]
@@ -147,8 +178,14 @@ def get_available_questions_in_scope(
     }
     attempted_numbers = {id_to_number[qid] for qid in attempted_ids_this_round if qid in id_to_number}
 
-    available_numbers = sorted(n for n in groups if n not in attempted_numbers)
-    return [_pick_representative(groups[n]) for n in available_numbers]
+    available_numbers = sorted(n for n in index if n not in attempted_numbers)
+    if limit is not None:
+        available_numbers = available_numbers[:limit]
+    if not available_numbers:
+        return []
+
+    groups = get_questions_by_numbers(mode, exam_scope, available_numbers)
+    return [_pick_representative(groups[n]) for n in available_numbers if n in groups]
 
 
 def pick_next_question(user_id: UUID, mode: str) -> Optional[dict[str, Any]]:
@@ -160,10 +197,12 @@ def pick_next_question(user_id: UUID, mode: str) -> Optional[dict[str, Any]]:
     if exam_scope is None:
         return None
 
-    available = get_available_questions_in_scope(user_id, mode, exam_scope, current_round)
+    available = get_available_questions_in_scope(user_id, mode, exam_scope, current_round, limit=1)
     if available:
         return available[0]
 
+    # 保底路線：這一輪已全部作答完但還沒重置，理論上很少發生，直接抓題號最小的一題即可，
+    # 不需要為了這個少見情境額外做輕量化查詢。
     groups = get_scope_candidates(mode, exam_scope)
     if not groups:
         return None

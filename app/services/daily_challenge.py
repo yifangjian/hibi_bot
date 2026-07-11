@@ -17,11 +17,12 @@ CHALLENGE_SIZE = 5
 
 
 def _available_questions_for_mode(user_id: str, mode: str) -> list[dict[str, Any]]:
-    """這個模式目前輪次還沒作答過的題目（依 question_number 排序）。"""
+    """這個模式目前輪次還沒作答過的題目（依 question_number 排序），最多抓 CHALLENGE_SIZE
+    筆代表列——每日挑戰單一模式最多用到這麼多題，不需要抓下整個範圍的完整內容。"""
     exam_scope, current_round = get_current_scope_and_round(user_id, mode)
     if exam_scope is None:
         return []
-    return get_available_questions_in_scope(user_id, mode, exam_scope, current_round)
+    return get_available_questions_in_scope(user_id, mode, exam_scope, current_round, limit=CHALLENGE_SIZE)
 
 
 def generate_challenge_for_user(user_id: str, challenge_date: date) -> dict[str, Any]:
