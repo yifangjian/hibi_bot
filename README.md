@@ -2,7 +2,7 @@
 
 高級日語課堂外自主練習用 LINE Chatbot，結合產出導向法（Production-Oriented Approach, POA）與生成式 AI 即時解釋型回饋，同時作為準實驗研究的資料蒐集系統。
 
-> 目前進度：Phase 1～6 皆已完成並上線測試過，核心功能完整。諺語（100 句）與単語（270 個讀音題）兩批正式題庫（高日暑修班期中考）已完成匯入與實測；諺語練習改為同一句諺語隨機出「語意選択」或「文脈穴埋め」其中一種第一階段題目（見下方「諺語隨機變體設計」），単語題庫是詞彙讀音測驗形式、沒有解析內容，答題後直接顯示正確讀音、不呼叫 AI（見下方「単語題庫匯入」）。後續重點轉為言語知識題庫匯入與前導試行。
+> 目前進度：Phase 1～6 皆已完成並上線測試過，核心功能完整。三種模式的正式題庫（高日暑修班期中考：諺語 100 句、単語 270 個讀音題、言語知識 661 題）皆已匯入完成，系統已部署上線（Railway，`--workers 2`）並串接正式 LINE 官方帳號。諺語練習改為同一句諺語隨機出「語意選択」或「文脈穴埋め」其中一種第一階段題目（見下方「諺語隨機變體設計」），単語題庫是詞彙讀音測驗形式、沒有解析內容，答題後直接顯示正確讀音、不呼叫 AI（見下方「単語題庫匯入」）。後續重點轉為前導試行。
 
 ## 1. 專案簡介
 
@@ -136,6 +136,26 @@ python scripts/import_vocab_questions.py \
 重複使用注意事項與 `import_proverb_questions.py` 相同（全量匯入、換範圍要換新的 `--exam-scope`、修改舊資料前要先確認 `attempts_log` 有沒有參照）。
 
 **因為這批資料沒有解析內容，単語模式的回饋機制跟諺／言語知識不同**：単語只考「這個詞怎麼唸」，答對答錯本身沒有需要 AI 說明的細膩語感，所以答題後直接顯示「正確讀音是「〇〇」。」，不呼叫 OpenAI、不寫入 `feedback_logs`。出題卡片因為沒有情境句可以挖空，會多顯示一句「請選出正確讀音」的提示文字（見 `build_question_card` 裡 `mode == "vocab" and not blank_marker` 的判斷）。如果之後単語題庫換成「情境例句挖空＋選項」的格式（沿用 Phase 1 原始設計），需要同時匯入 `explanation_rule` 並把 `_build_feedback_text` 的判斷改回呼叫 AI 生成，目前這個判斷是寫死依 `mode == "vocab"`，不是依「有沒有解析」動態判斷。
+
+### 言語知識題庫匯入（`scripts/import_language_knowledge_questions.py`）
+
+用途：讀取 `data/raw/` 底下的 Excel 檔案，寫入 `questions` 表。跟諺語／単語不同的是，這支腳本支援**同一個檔案裡有多個工作表**，每個工作表都是題目，會依工作表順序合併匯入，`question_number` 跨所有工作表連續編號（不是每個工作表各自從 1 開始）。
+
+實際拿到的題庫裡，不同工作表的欄位結構並不完全一致，腳本會自動適應：
+- 選項數：有些工作表只有 A/B/C 三個選項，有些有到 D，腳本依當時實際填寫的「選項X」欄位數量動態判斷，不是寫死 3 或 4 個
+- 題目裡的挖空標記：有的用「＿＿」，有的用「（　　）」（全形括號夾兩個全形空格），腳本會逐列用正則判斷這一列實際用的是哪一種；極少數題目本身沒有挖空（是直接問文法用法的題型），這種就不會有 `blank_marker`
+
+```bash
+# 先跑小批次（前 5 題，跨工作表累計）確認流程沒問題
+python scripts/import_language_knowledge_questions.py \
+    --file "data/raw/檔名.xlsx" --exam-scope "範圍名稱" --limit 5
+
+# 確認沒問題後，正式全量匯入
+python scripts/import_language_knowledge_questions.py \
+    --file "data/raw/檔名.xlsx" --exam-scope "範圍名稱"
+```
+
+重複使用注意事項與另外兩支匯入腳本相同（全量匯入、換範圍要換新的 `--exam-scope`、修改舊資料前要先確認 `attempts_log` 有沒有參照）。這批資料有解析內容（格式跟諺語不同，是【文法】【中譯】【正解】【干擾項】而不是【例文】），所以言語知識維持原本 AI 生成回饋的流程，跟単語不同。
 
 **本機測試 LINE webhook**：由於 LINE 平台需要對外可存取的 HTTPS 端點，本機開發可使用 [ngrok](https://ngrok.com/) 建立臨時通道（`ngrok http 8000`），再將產生的網址填入 LINE Developers Console 的 Webhook URL；也可以使用 LINE 官方提供的 Webhook 驗證工具（Console 內的「Verify」按鈕）確認端點是否正常回應。
 
