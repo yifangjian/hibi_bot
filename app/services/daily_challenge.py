@@ -226,15 +226,33 @@ def run_daily_push() -> dict[str, Any]:
     today = date.today()
 
     pushed = 0
+    skipped = 0
     failed = 0
     for user in users:
         user_id = user["id"]
         line_user_id = user["line_user_id"]
 
         try:
+            existing = (
+                supabase.table("daily_challenge")
+                .select("id")
+                .eq("user_id", user_id)
+                .eq("challenge_date", today.isoformat())
+                .execute()
+                .data
+            )
+            if existing:
+                # 理論上 cron 一天只會觸發一次，這裡應該永遠不會命中；保留是為了不小心
+                # 重複觸發時（手動重跑、cron 意外觸發兩次）不要對已經有今日挑戰的使用者
+                # 重複推播，也不要把「本來就有」誤判成「失敗」。
+                logger.info("user=%s already has today's challenge, skip push", user_id)
+                skipped += 1
+                continue
+
             challenge = generate_challenge_for_user(user_id, today)
             if not challenge["questions"]:
                 logger.info("user=%s has no available questions today, skip push", user_id)
+                skipped += 1
                 continue
 
             line_client.push_flex(
@@ -248,4 +266,4 @@ def run_daily_push() -> dict[str, Any]:
             logger.exception("Failed to push daily challenge to user=%s", user_id)
             failed += 1
 
-    return {"users": len(users), "pushed": pushed, "failed": failed}
+    return {"users": len(users), "pushed": pushed, "skipped": skipped, "failed": failed}
