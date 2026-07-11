@@ -11,16 +11,23 @@ CREATE TABLE questions (
     mode TEXT NOT NULL CHECK (mode IN ('vocab', 'proverb', 'language_knowledge')),
     exam_scope TEXT NOT NULL,  -- 考試範圍標籤（例如「期中考」「小考3」），純粹分組用，不假設有順序
     stage TEXT,  -- proverb 專用: 'semantic_choice' / 'situational_choice' / 'reading_input'；其他模式為 NULL
-    parent_question_id UUID REFERENCES questions(id),  -- 諺題目：兩階段共用同一個 parent 做關聯
+    parent_question_id UUID REFERENCES questions(id),  -- 已停用：諺題目改用 question_number 分組（見下方 stage 說明），此欄位保留但不再寫入
     context_sentence TEXT,
     blank_marker TEXT,
     options JSONB,  -- [{"id": "1", "text": "..."}, ...]
     correct_option TEXT,
     explanation_rule TEXT,  -- 人工標註的解釋依據，供 AI 生成回饋時參考，避免自由發揮
-    question_number INT,  -- 人類可讀題號，同一 mode 全域唯一（不分範圍），供 AI 助教輸入題號查詢；諺第二階段（reading_input）不編號，維持 NULL
-    created_at TIMESTAMPTZ DEFAULT now(),
-    CONSTRAINT unique_question_number_per_mode UNIQUE (mode, question_number)
+    question_number INT,  -- 人類可讀題號，供 AI 助教輸入題號查詢；同一 (mode, exam_scope) 內唯一（不是全域唯一——
+                           -- 每次考期換 exam_scope 都會重新從 1 編號，所以題號只在「目前這個範圍」內有意義）
+                           -- 単語/言語知識每個題號對應一筆，諺同一題號可有多筆
+                           -- （semantic_choice/situational_choice/reading_input 三種 stage 共用同一個 question_number，代表同一句諺語）
+    created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- 単語/言語知識：同一 (mode, exam_scope) 下 question_number 唯一；諺：同一 (mode, exam_scope, question_number) 下每個 stage 只能有一筆
+-- （用 COALESCE 而非直接 UNIQUE(mode, exam_scope, question_number, stage) 是因為 Postgres 認定兩個 NULL 不算相等，
+-- 若用一般 CONSTRAINT，stage 恆為 NULL 的単語/言語知識就會完全失去題號防重複保護）
+CREATE UNIQUE INDEX unique_question_number_per_scope_stage ON questions (mode, exam_scope, question_number, COALESCE(stage, ''));
 
 -- 每日挑戰（每天固定時間推播，橫跨三模式隨機抽題，最多 5 題）
 CREATE TABLE daily_challenge (
@@ -46,7 +53,8 @@ CREATE TABLE attempts_log (
     attempt_type TEXT CHECK (attempt_type IN ('first', 'review')),
     pushed_at TIMESTAMPTZ,   -- 若為系統推播觸發則有值，使用者自發練習則為 NULL
     responded_at TIMESTAMPTZ DEFAULT now(),
-    answer_detail JSONB,  -- 諺兩階段合併判定明細：{stage1_option, stage1_correct, stage2_reading_input, stage2_correct}；其他模式為 NULL
+    answer_detail JSONB,  -- 諺兩階段合併判定明細：{stage1_variant, stage1_option, stage1_correct, stage2_reading_input, stage2_correct}；
+                          -- stage1_variant 記錄這次隨機抽到的是 semantic_choice 還是 situational_choice，供分析兩種出題形式正確率是否有差異；其他模式為 NULL
     round_number INT NOT NULL DEFAULT 1,  -- 寫入時帶入當下 scope_progress.current_round，供重置後區分輪次
     daily_challenge_id UUID REFERENCES daily_challenge(id)  -- 有值代表這是每日挑戰的一題；使用者自發練習則為 NULL
 );

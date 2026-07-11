@@ -24,6 +24,38 @@ def _context_sentence_contents(context_sentence: str, blank_marker: Optional[str
     return [{"type": "span", "text": context_sentence}]
 
 
+def _option_box(option: dict[str, Any], data: str) -> dict:
+    """可完整顯示長選項文字的可點擊選項列。LINE 的 button 元件文字取自 action.label，
+    這個欄位官方硬性限制最多 20 字元，長選項（例如完整句子）會被截斷。改用 box 掛
+    action，視覺文字改放在裡面的 text 元件（wrap=True），不受這個限制；label 只放
+    簡短的「選項X」供無障礙輔助使用，不影響實際顯示內容。
+    """
+    short_label = f"選項{option['id'].upper()}"
+    return {
+        "type": "box",
+        "layout": "vertical",
+        "backgroundColor": NAVY,
+        "cornerRadius": "md",
+        "paddingAll": "12px",
+        "action": {
+            "type": "postback",
+            "label": short_label,
+            "data": data,
+            "displayText": option["text"],
+        },
+        "contents": [
+            {
+                "type": "text",
+                "text": option["text"],
+                "wrap": True,
+                "size": "sm",
+                "color": "#FFFFFF",
+                "align": "center",
+            }
+        ],
+    }
+
+
 def build_question_card(question: dict[str, Any], action: str = "answer") -> dict:
     """単語 / 諺第一階段 / 言語知識共用的出題卡片。action 預設為一般練習的 "answer"，
     複習錯題模式會傳入 "review_answer" 讓後端區分這是複習還是初次作答。"""
@@ -31,17 +63,7 @@ def build_question_card(question: dict[str, Any], action: str = "answer") -> dic
     stage_param = f"&stage={stage}" if stage else "&stage=1"
 
     option_buttons = [
-        {
-            "type": "button",
-            "style": "primary",
-            "color": NAVY,
-            "action": {
-                "type": "postback",
-                "label": option["text"],
-                "data": f"action={action}&qid={question['id']}&opt={option['id']}{stage_param}",
-                "displayText": option["text"],
-            },
-        }
+        _option_box(option, f"action={action}&qid={question['id']}&opt={option['id']}{stage_param}")
         for option in question.get("options") or []
     ]
 
@@ -154,20 +176,13 @@ def build_challenge_question_card(question: dict[str, Any], challenge_id: str, p
     stage_param = f"&stage={stage}" if stage else "&stage=1"
 
     option_buttons = [
-        {
-            "type": "button",
-            "style": "primary",
-            "color": NAVY,
-            "action": {
-                "type": "postback",
-                "label": option["text"],
-                "data": (
-                    f"action=daily_challenge_answer&challenge_id={challenge_id}"
-                    f"&qid={question['id']}&opt={option['id']}{stage_param}"
-                ),
-                "displayText": option["text"],
-            },
-        }
+        _option_box(
+            option,
+            (
+                f"action=daily_challenge_answer&challenge_id={challenge_id}"
+                f"&qid={question['id']}&opt={option['id']}{stage_param}"
+            ),
+        )
         for option in question.get("options") or []
     ]
 

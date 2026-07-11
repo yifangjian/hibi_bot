@@ -1,6 +1,8 @@
 """
-灌入最小的測試題庫，供端到端測試使用（単語 x2、言語知識 x2、諺 x1 對）。
+灌入最小的測試題庫，供端到端測試使用（単語 x2、言語知識 x2、諺 x1 句 3 筆）。
 每個 mode 內的 question_number 從 1 開始流水編號，供 AI 助教依題號查詢。
+諺同一句用同一個 question_number，semantic_choice/situational_choice/reading_input
+各一筆（見 scripts/import_proverb_questions.py 說明）。
 所有題目都放在 exam_scope="1"，並把它設為每個 mode 目前的 active_exam_scope。
 
     python scripts/seed_sample_questions.py
@@ -85,7 +87,26 @@ def main() -> None:
         }
     )
 
-    stage1 = insert(
+    # 諺：同一句（question_number=1）匯入 3 筆，semantic_choice/situational_choice 出題時隨機擇一，
+    # reading_input 一律接在第二階段。三筆共用同一個 question_number，不再用 parent_question_id 關聯。
+    insert(
+        {
+            "mode": "proverb",
+            "exam_scope": "1",
+            "question_number": 1,
+            "stage": "semantic_choice",
+            "context_sentence": "「七転び八起き」の意味として、最も適切なものはどれか。",
+            "blank_marker": None,
+            "options": [
+                {"id": "a", "text": "何度失敗しても諦めずに立ち上がる様子"},
+                {"id": "b", "text": "一度の失敗で完全に諦めてしまう様子"},
+                {"id": "c", "text": "他人の失敗を笑う様子"},
+            ],
+            "correct_option": "a",
+            "explanation_rule": "「七転び八起き」は何度失敗しても諦めずに立ち上がる様子を表すことわざ。",
+        }
+    )
+    insert(
         {
             "mode": "proverb",
             "exam_scope": "1",
@@ -106,8 +127,8 @@ def main() -> None:
         {
             "mode": "proverb",
             "exam_scope": "1",
+            "question_number": 1,
             "stage": "reading_input",
-            "parent_question_id": stage1["id"],
             "context_sentence": None,
             "blank_marker": None,
             "options": None,
@@ -119,7 +140,7 @@ def main() -> None:
     for mode in ["vocab", "proverb", "language_knowledge"]:
         supabase.table("active_exam_scope").upsert({"mode": mode, "exam_scope": "1"}).execute()
 
-    print("已灌入測試題庫：単語 x2、言語知識 x2、諺 x1 對（2 列），並將三個模式的 active_exam_scope 設為 \"1\"")
+    print("已灌入測試題庫：単語 x2、言語知識 x2、諺 x1 句（3 列），並將三個模式的 active_exam_scope 設為 \"1\"")
 
 
 if __name__ == "__main__":

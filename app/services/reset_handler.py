@@ -3,7 +3,7 @@ from uuid import UUID
 
 from app.db.client import supabase
 from app.services import line_client
-from app.services.progress import count_wrong_in_scope, get_scope_question_ids
+from app.services.progress import count_wrong_in_scope
 from app.services.question_picker import get_current_scope_and_round
 
 
@@ -39,8 +39,7 @@ def handle_reset_unit(user_id: UUID, params: dict, reply_token: str) -> None:
         return
 
     if not progress["all_wrong_resolved"]:
-        scope_question_ids = get_scope_question_ids(mode, exam_scope)
-        wrong_count = count_wrong_in_scope(user_id, scope_question_ids)
+        wrong_count = count_wrong_in_scope(user_id, mode, exam_scope)
         line_client.reply_text(reply_token, f"你還有 {wrong_count} 題錯題尚未複習完成，複習完才能重置喔")
         return
 
