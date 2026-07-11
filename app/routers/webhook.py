@@ -8,7 +8,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
-from app.services import menu_actions
+from app.services import line_client, menu_actions
 from app.services.menu_interaction import log_menu_interaction
 from app.services.message_router import handle_text_message
 from app.services.users import get_or_create_user
@@ -25,28 +25,48 @@ def _verify_signature(body: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
-def _handle_postback(event: dict) -> None:
-    line_user_id = event["source"]["userId"]
-    params = dict(parse_qsl(event["postback"]["data"]))
-    action = params.pop("action", None)
-    mode = params.get("mode")
-    reply_token = event["replyToken"]
+def _fallback_reply(reply_token: str) -> None:
+    """任何未預期的例外都會走到這裡。沒有這一層的話，使用者會完全收不到任何回覆
+    （LINE 端就是已讀不回的狀態），對一個以「降低練習焦慮」為目標的工具來說是最壞的
+    失敗方式。這裡本身失敗（例如 reply_token 已經被上游用掉）也只記錄、不往外丟，
+    避免例外處理本身又造成新的未捕捉例外。
+    """
+    try:
+        line_client.reply_text(reply_token, "系統剛剛出了一點小狀況，請稍後再試一次；如果持續發生，麻煩告訴授課老師。")
+    except Exception:
+        logger.exception("Fallback reply itself also failed")
 
-    user_id = get_or_create_user(line_user_id)
-    log_menu_interaction(user_id=user_id, action=action, mode=mode)
-    menu_actions.dispatch(action, params, user_id, reply_token)
+
+def _handle_postback(event: dict) -> None:
+    reply_token = event["replyToken"]
+    try:
+        line_user_id = event["source"]["userId"]
+        params = dict(parse_qsl(event["postback"]["data"]))
+        action = params.pop("action", None)
+        mode = params.get("mode")
+
+        user_id = get_or_create_user(line_user_id)
+        log_menu_interaction(user_id=user_id, action=action, mode=mode)
+        menu_actions.dispatch(action, params, user_id, reply_token)
+    except Exception:
+        logger.exception("Unhandled error handling postback event: %s", event)
+        _fallback_reply(reply_token)
 
 
 def _handle_message(event: dict) -> None:
     if event.get("message", {}).get("type") != "text":
         return
 
-    line_user_id = event["source"]["userId"]
-    text = event["message"]["text"]
     reply_token = event["replyToken"]
+    try:
+        line_user_id = event["source"]["userId"]
+        text = event["message"]["text"]
 
-    user_id = get_or_create_user(line_user_id)
-    handle_text_message(user_id, text, reply_token)
+        user_id = get_or_create_user(line_user_id)
+        handle_text_message(user_id, text, reply_token)
+    except Exception:
+        logger.exception("Unhandled error handling message event: %s", event)
+        _fallback_reply(reply_token)
 
 
 @router.post("")

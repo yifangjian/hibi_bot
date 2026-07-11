@@ -1,5 +1,6 @@
 import io
 import random
+import re
 import uuid
 from pathlib import Path
 
@@ -17,6 +18,16 @@ MUTED = (138, 133, 120)  # #8A8578
 GOLD = (200, 160, 90)
 
 FONT_PATH = Path(__file__).resolve().parent.parent.parent / "assets" / "fonts" / "NotoSansTC-Bold.otf"
+
+_SAFE_NAME_CHARS = re.compile(r"[^一-鿿぀-ヿ＀-￯A-Za-z0-9 ._-]")
+
+
+def _sanitize_display_name(name: str) -> str:
+    """LINE 顯示名稱常包含 emoji 或特殊符號，字型檔（NotoSansTC-Bold）沒有對應字符，
+    直接畫上去可能出現缺字方塊、甚至讓 Pillow 丟例外。只保留中日文、英數字、基本標點，
+    並限制長度避免超出圖卡寬度。"""
+    cleaned = _SAFE_NAME_CHARS.sub("", name or "").strip()
+    return cleaned[:14] if cleaned else "同學"
 
 
 def _font(size: int) -> ImageFont.FreeTypeFont:
@@ -38,6 +49,7 @@ def _draw_confetti(draw: ImageDraw.ImageDraw) -> None:
 
 def generate_completion_image(display_name: str, accuracy_pct: int, date_str: str) -> str:
     """產生每日挑戰完成圖卡，上傳到 Supabase Storage public bucket，回傳公開 URL。"""
+    display_name = _sanitize_display_name(display_name)
     img = Image.new("RGB", (WIDTH, HEIGHT), BACKGROUND)
     draw = ImageDraw.Draw(img)
 
