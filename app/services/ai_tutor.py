@@ -5,7 +5,7 @@ from app.config import settings
 from app.db.client import supabase
 from app.services import flex_templates, line_client
 from app.services.ai_client import chat_completion
-from app.services.question_picker import find_question_by_number, option_text
+from app.services.question_picker import find_question_by_number, get_current_scope_and_round, option_text
 from app.services.session_state import set_session_state
 
 TUTOR_INITIAL_SYSTEM_PROMPT = """你是一套日語教學系統的 AI 助教，正在為學習者解析他指定的某一題。
@@ -32,7 +32,12 @@ def _log(user_id: UUID, question_id: str, role: str, message: str) -> None:
 
 
 def start_conversation(user_id: UUID, mode: str, question_number_text: str, reply_token: str) -> None:
-    question = find_question_by_number(mode, int(question_number_text))
+    exam_scope, _ = get_current_scope_and_round(user_id, mode)
+    if exam_scope is None:
+        line_client.reply_text(reply_token, "目前還沒有指定教學範圍，無法查詢題號")
+        return
+
+    question = find_question_by_number(mode, exam_scope, int(question_number_text))
     if not question:
         line_client.reply_text(reply_token, "找不到這個題號，請確認輸入正確")
         return

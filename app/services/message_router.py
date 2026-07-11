@@ -42,6 +42,7 @@ def _handle_reading_input(user_id: UUID, text: str, reply_token: str, context: d
         is_correct=is_correct,
         selected_option=stage1_option,
         answer_detail={
+            "stage1_variant": stage1_question.get("stage") if stage1_question else None,
             "stage1_option": stage1_option,
             "stage1_correct": stage1_correct,
             "stage2_reading_input": text,

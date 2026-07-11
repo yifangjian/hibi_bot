@@ -2,7 +2,7 @@
 
 高級日語課堂外自主練習用 LINE Chatbot，結合產出導向法（Production-Oriented Approach, POA）與生成式 AI 即時解釋型回饋，同時作為準實驗研究的資料蒐集系統。
 
-> 目前進度：Phase 1～6 皆已完成並上線測試過。回饋卡片已改由 OpenAI 依 `explanation_rule` 即時生成個別化解釋；AI 助教可依題號查詢並解析特定題目，追問對話有每日輪次限制；系統每天固定時間主動推播「每日挑戰」，使用者完成後會收到動態生成的圖卡；重置、進度查詢、錯題複習等核心練習迴圈也已完整串接。至此 hibi_bot 的核心功能已完整，後續重點轉為正式題庫整理與前導試行。
+> 目前進度：Phase 1～6 皆已完成並上線測試過，核心功能完整。第一批正式題庫（諺語模式，高日暑修班期中考 100 句）已完成匯入與實測，諺語練習改為同一句諺語隨機出「語意選択」或「文脈穴埋め」其中一種第一階段題目（見下方「諺語隨機變體設計」）。後續重點轉為単語／言語知識題庫匯入與前導試行。
 
 ## 1. 專案簡介
 
@@ -85,6 +85,40 @@ UPDATE active_exam_scope SET exam_scope = '期末考', updated_at = now() WHERE 
 
 只要新範圍的題目用新的 `exam_scope` 值匯入 `questions` 表，`current_round` 就會自動從第 1 輪開始（沒有 `scope_progress` 紀錄時的預設值），不需要額外處理；舊範圍的所有作答歷史完整保留在 `attempts_log`，不受影響。
 
+`question_number`（人類可讀題號，供 AI 助教輸入題號查詢用）只在同一個 `(mode, exam_scope)` 內唯一，不是全域唯一——因為每次考期換 `exam_scope` 都會重新從 1 編號，如果做成全域唯一，下一次考期匯入新題庫時題號一定會撞到上一次考期的題號。AI 助教查詢時會先看該模式目前的 `active_exam_scope` 再查題號，因此換範圍後，同一個數字自然對應到新範圍裡的題目，不會查到舊範圍的題目。
+
+### 諺語隨機變體設計
+
+諺語題目匯入時，同一句諺語會寫入 3 筆 `questions` 資料，共用同一個 `question_number`，用 `stage` 欄位區分：
+
+- `semantic_choice`：意味選択（「這個諺語的意思是？」）
+- `situational_choice`：文脈穴埋め（「符合這個情境的諺語是？」）
+- `reading_input`：読み方（讀音輸入，第二階段固定使用）
+
+使用者每次練習到某句諺語時，系統會在 `semantic_choice`／`situational_choice` 兩者之間**隨機擇一**當作第一階段題目（見 [`app/services/question_picker.py`](app/services/question_picker.py) 的 `get_scope_candidates`／`_pick_representative`），第二階段一律接同一個 `question_number` 底下的 `reading_input`。判斷「這句諺語本輪是否已作答過」時是以 `question_number` 為準，不是以個別變體的資料列 id 為準，所以同一句諺語不會因為兩種變體對系統來說是「不同題目」而被重複選中。這次隨機選到的是哪個變體會記錄在 `attempts_log.answer_detail.stage1_variant`，供後續分析兩種出題形式的正確率是否有差異。
+
+### 諺語題庫匯入（`scripts/import_proverb_questions.py`）
+
+用途：讀取 `data/raw/` 底下的 Excel 檔案（意味選択／文脈穴埋め／読み方三個工作表，依列順序一一對應同一句諺語），寫入 `questions` 表。
+
+```bash
+# 先跑小批次（前 5 句）確認流程沒問題
+python scripts/import_proverb_questions.py \
+    --file "data/raw/檔名.xlsx" --exam-scope "範圍名稱" --limit 5
+
+# 確認沒問題後，正式全量匯入
+python scripts/import_proverb_questions.py \
+    --file "data/raw/檔名.xlsx" --exam-scope "範圍名稱"
+```
+
+**重複使用注意事項（重要，避免誤用造成重複資料）**：
+
+- 這是「全量匯入」腳本，不是增量／upsert。執行前會先檢查指定的 `exam_scope` 底下是否已經有 `proverb` 題目，如果有就直接中止，不會自動覆蓋或疊加。
+- 換到**全新的考試範圍**（例如下一次段考、小考）：直接換一個新的 `--exam-scope` 字串即可，不會跟舊範圍衝突（`question_number` 只在同一個 `(mode, exam_scope)` 內唯一）。匯入後記得手動更新 `active_exam_scope`（見上方「考試範圍設定」）切到新範圍。
+- 要**修正／更新**某個 `exam_scope` 已匯入的題庫內容（例如改了幾題的解析）：這支腳本不會做任何刪除，需要手動決定是否清除該範圍的舊資料。動手前務必先查 `attempts_log`／`wrong_question_state` 有沒有已經參照這些題目的作答紀錄——如果有（代表已經有人開始作答這個範圍），刪除前必須先確認清楚，不能直接執行，避免破壞已經產生的研究資料。
+
+**選項文字長度注意事項**：出題卡片的選項並非用 LINE 的 button 元件呈現（button 的可見文字取自 `action.label`，官方硬性限制最多 20 字元，完整句子形式的選項會被截斷），而是改用可完整顯示文字的點擊區塊（box + action，見 [`app/services/flex_templates.py`](app/services/flex_templates.py) 的 `_option_box`）。之後不管哪個模式匯入新題庫，選項文字長度都不受這個限制影響。
+
 **本機測試 LINE webhook**：由於 LINE 平台需要對外可存取的 HTTPS 端點，本機開發可使用 [ngrok](https://ngrok.com/) 建立臨時通道（`ngrok http 8000`），再將產生的網址填入 LINE Developers Console 的 Webhook URL；也可以使用 LINE 官方提供的 Webhook 驗證工具（Console 內的「Verify」按鈕）確認端點是否正常回應。
 
 **圖文選單設置**：`.env` 填好 `LINE_CHANNEL_ACCESS_TOKEN` 後，執行一次：
@@ -101,7 +135,7 @@ python scripts/setup_richmenu.py
 python scripts/seed_sample_questions.py
 ```
 
-會建立単語 x2、言語知識 x2、諺 x1 對（語意/情境選擇 + 讀音輸入）的最小題庫。接著用測試帳號加官方帳號好友，實際跑一次：
+會建立単語 x2、言語知識 x2、諺 x1 句（3 筆：語意選択／情境選擇／讀音輸入，practice 時前兩者隨機擇一）的最小題庫。接著用測試帳號加官方帳號好友，實際跑一次：
 
 1. 點選單「単語」→「開始練習」→ 回答題目卡片上的選項 → 確認收到的回饋卡片是 OpenAI 生成的個別化解釋（不是 `explanation_rule` 原文）→「再練一題」
 2. 點選單「諺」→「開始練習」→ 回答第一階段選項 → 收到讀音輸入提示卡 → 直接在聊天室輸入平假名 → 確認收到合併判定後的回饋卡片
