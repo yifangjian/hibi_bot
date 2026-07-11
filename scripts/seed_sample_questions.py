@@ -1,6 +1,7 @@
 """
 灌入最小的測試題庫，供端到端測試使用（単語 x2、言語知識 x2、諺 x1 對）。
 每個 mode 內的 question_number 從 1 開始流水編號，供 AI 助教依題號查詢。
+所有題目都放在 exam_scope="1"，並把它設為每個 mode 目前的 active_exam_scope。
 
     python scripts/seed_sample_questions.py
 """
@@ -21,7 +22,7 @@ def main() -> None:
     insert(
         {
             "mode": "vocab",
-            "unit_number": 1,
+            "exam_scope": "1",
             "question_number": 1,
             "context_sentence": "彼は毎朝＿＿＿を読んでから出勤する。",
             "blank_marker": "＿＿＿",
@@ -37,7 +38,7 @@ def main() -> None:
     insert(
         {
             "mode": "vocab",
-            "unit_number": 1,
+            "exam_scope": "1",
             "question_number": 2,
             "context_sentence": "この＿＿＿はとても静かで勉強に集中できる。",
             "blank_marker": "＿＿＿",
@@ -54,7 +55,7 @@ def main() -> None:
     insert(
         {
             "mode": "language_knowledge",
-            "unit_number": 1,
+            "exam_scope": "1",
             "question_number": 1,
             "context_sentence": "彼の説明は＿＿＿要領を得ない。",
             "blank_marker": "＿＿＿",
@@ -70,7 +71,7 @@ def main() -> None:
     insert(
         {
             "mode": "language_knowledge",
-            "unit_number": 1,
+            "exam_scope": "1",
             "question_number": 2,
             "context_sentence": "彼女は＿＿＿の努力の末、試験に合格した。",
             "blank_marker": "＿＿＿",
@@ -87,7 +88,7 @@ def main() -> None:
     stage1 = insert(
         {
             "mode": "proverb",
-            "unit_number": 1,
+            "exam_scope": "1",
             "question_number": 1,
             "stage": "situational_choice",
             "context_sentence": "何度も失敗しても諦めずに挑戦し続ける友人を見て、「＿＿＿」と励ました。",
@@ -104,7 +105,7 @@ def main() -> None:
     insert(
         {
             "mode": "proverb",
-            "unit_number": 1,
+            "exam_scope": "1",
             "stage": "reading_input",
             "parent_question_id": stage1["id"],
             "context_sentence": None,
@@ -115,7 +116,10 @@ def main() -> None:
         }
     )
 
-    print("已灌入測試題庫：単語 x2、言語知識 x2、諺 x1 對（2 列）")
+    for mode in ["vocab", "proverb", "language_knowledge"]:
+        supabase.table("active_exam_scope").upsert({"mode": mode, "exam_scope": "1"}).execute()
+
+    print("已灌入測試題庫：単語 x2、言語知識 x2、諺 x1 對（2 列），並將三個模式的 active_exam_scope 設為 \"1\"")
 
 
 if __name__ == "__main__":

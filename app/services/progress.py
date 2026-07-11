@@ -3,42 +3,32 @@ from uuid import UUID
 from app.db.client import supabase
 
 
-def update_unit_progress(user_id: UUID, mode: str, unit_number: int) -> None:
-    existing = (
-        supabase.table("unit_progress")
-        .select("current_round")
-        .eq("user_id", str(user_id))
-        .eq("mode", mode)
-        .eq("unit_number", unit_number)
-        .execute()
-        .data
-    )
-    current_round = existing[0]["current_round"] if existing else 1
-
-    unit_questions = (
+def get_scope_question_ids(mode: str, exam_scope: str) -> set[str]:
+    rows = (
         supabase.table("questions")
         .select("id")
         .eq("mode", mode)
-        .eq("unit_number", unit_number)
+        .eq("exam_scope", exam_scope)
         .is_("parent_question_id", "null")
         .execute()
         .data
     )
-    unit_question_ids = {row["id"] for row in unit_questions}
-    total_count = len(unit_question_ids)
+    return {row["id"] for row in rows}
 
-    # 只看「當前這一輪」的作答紀錄，避免重置後被過去輪次的紀錄誤判成已全部作答
+
+def count_attempted_in_scope(user_id: UUID, scope_question_ids: set[str], round_number: int) -> int:
     attempted = (
         supabase.table("attempts_log")
         .select("question_id")
         .eq("user_id", str(user_id))
-        .eq("round_number", current_round)
+        .eq("round_number", round_number)
         .execute()
         .data
     )
-    attempted_ids_in_unit = {row["question_id"] for row in attempted} & unit_question_ids
-    all_attempted = total_count > 0 and len(attempted_ids_in_unit) >= total_count
+    return len({row["question_id"] for row in attempted} & scope_question_ids)
 
+
+def count_wrong_in_scope(user_id: UUID, scope_question_ids: set[str]) -> int:
     wrong = (
         supabase.table("wrong_question_state")
         .select("question_id")
@@ -47,14 +37,36 @@ def update_unit_progress(user_id: UUID, mode: str, unit_number: int) -> None:
         .execute()
         .data
     )
-    wrong_ids_in_unit = {row["question_id"] for row in wrong} & unit_question_ids
-    all_wrong_resolved = len(wrong_ids_in_unit) == 0
+    return len({row["question_id"] for row in wrong} & scope_question_ids)
 
-    supabase.table("unit_progress").upsert(
+
+def update_scope_progress(user_id: UUID, mode: str, exam_scope: str) -> None:
+    existing = (
+        supabase.table("scope_progress")
+        .select("current_round")
+        .eq("user_id", str(user_id))
+        .eq("mode", mode)
+        .eq("exam_scope", exam_scope)
+        .execute()
+        .data
+    )
+    current_round = existing[0]["current_round"] if existing else 1
+
+    scope_question_ids = get_scope_question_ids(mode, exam_scope)
+    total_count = len(scope_question_ids)
+
+    # 只看「當前這一輪」的作答紀錄，避免重置後被過去輪次的紀錄誤判成已全部作答
+    attempted_count = count_attempted_in_scope(user_id, scope_question_ids, current_round)
+    all_attempted = total_count > 0 and attempted_count >= total_count
+
+    wrong_count = count_wrong_in_scope(user_id, scope_question_ids)
+    all_wrong_resolved = wrong_count == 0
+
+    supabase.table("scope_progress").upsert(
         {
             "user_id": str(user_id),
             "mode": mode,
-            "unit_number": unit_number,
+            "exam_scope": exam_scope,
             "all_attempted": all_attempted,
             "all_wrong_resolved": all_wrong_resolved,
             "current_round": current_round,
