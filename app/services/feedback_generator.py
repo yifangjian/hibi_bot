@@ -45,6 +45,34 @@ def _build_messages(
     ]
 
 
+def generate_feedback_text(
+    context_sentence: str,
+    correct_option_text: str,
+    selected_option_text: str,
+    explanation_rule: str,
+    is_correct: bool,
+) -> str:
+    """只呼叫 AI 生成回饋文字，不寫入 feedback_logs。這段不需要 attempt_log_id，
+    所以呼叫端可以把這個呼叫跟寫 attempts_log 的 DB 操作平行執行（AI 生成通常比整段
+    DB 寫入還慢，平行跑可以讓使用者少等一段時間），確定要用的時候再呼叫 log_feedback。
+    """
+    messages = _build_messages(
+        context_sentence, correct_option_text, selected_option_text, explanation_rule, is_correct
+    )
+    return chat_completion(messages)
+
+
+def log_feedback(attempt_log_id: UUID, ai_generated_text: str) -> None:
+    supabase.table("feedback_logs").insert(
+        {
+            "attempt_log_id": str(attempt_log_id),
+            "ai_generated_text": ai_generated_text,
+            "model_used": settings.openai_model,
+            "human_reviewed": False,
+        }
+    ).execute()
+
+
 def generate_and_log_feedback(
     attempt_log_id: UUID,
     context_sentence: str,
@@ -53,18 +81,8 @@ def generate_and_log_feedback(
     explanation_rule: str,
     is_correct: bool,
 ) -> str:
-    messages = _build_messages(
+    text = generate_feedback_text(
         context_sentence, correct_option_text, selected_option_text, explanation_rule, is_correct
     )
-    text = chat_completion(messages)
-
-    supabase.table("feedback_logs").insert(
-        {
-            "attempt_log_id": str(attempt_log_id),
-            "ai_generated_text": text,
-            "model_used": settings.openai_model,
-            "human_reviewed": False,
-        }
-    ).execute()
-
+    log_feedback(attempt_log_id, text)
     return text

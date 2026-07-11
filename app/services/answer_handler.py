@@ -86,6 +86,6 @@ def finalize_attempt(
                 "user_id", str(user_id)
             ).eq("question_id", question["id"]).execute()
 
-    update_scope_progress(user_id, question["mode"], question["exam_scope"])
+    update_scope_progress(user_id, question["mode"], question["exam_scope"], round_number)
 
     return inserted.data[0]

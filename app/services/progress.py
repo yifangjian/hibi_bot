@@ -1,23 +1,18 @@
 from uuid import UUID
 
 from app.db.client import supabase
-from app.services.question_picker import get_scope_candidates
+from app.services.question_picker import get_scope_progress_index
 
 
-def get_scope_question_numbers(mode: str, exam_scope: str) -> set[int]:
-    return set(get_scope_candidates(mode, exam_scope).keys())
-
-
-def _question_number_map(mode: str, exam_scope: str) -> dict[str, int]:
-    """列 id -> question_number。諺的變體列 id 每次隨機出題才決定，本身不能當題目識別，
-    所以計算「這一輪/這個範圍答過幾題、錯幾題」時都要先透過這個 map 換算回題號再去重。
+def question_number_map(index: dict[int, list[str]]) -> dict[str, int]:
+    """列 id -> question_number，供把 attempts_log/wrong_question_state 記錄的 row id
+    換算回題號再去重用。呼叫端應該只抓一次 get_scope_progress_index 再重複使用這個 map，
+    避免同一個範圍的題目清單被重複查詢。
     """
-    groups = get_scope_candidates(mode, exam_scope)
-    return {row["id"]: number for number, rows in groups.items() for row in rows}
+    return {rid: number for number, ids in index.items() for rid in ids}
 
 
-def count_attempted_in_scope(user_id: UUID, mode: str, exam_scope: str, round_number: int) -> int:
-    id_to_number = _question_number_map(mode, exam_scope)
+def count_attempted_in_scope(user_id: UUID, id_to_number: dict[str, int], round_number: int) -> int:
     attempted = (
         supabase.table("attempts_log")
         .select("question_id")
@@ -30,8 +25,7 @@ def count_attempted_in_scope(user_id: UUID, mode: str, exam_scope: str, round_nu
     return len(numbers)
 
 
-def count_wrong_in_scope(user_id: UUID, mode: str, exam_scope: str) -> int:
-    id_to_number = _question_number_map(mode, exam_scope)
+def count_wrong_in_scope(user_id: UUID, id_to_number: dict[str, int]) -> int:
     wrong = (
         supabase.table("wrong_question_state")
         .select("question_id")
@@ -44,25 +38,18 @@ def count_wrong_in_scope(user_id: UUID, mode: str, exam_scope: str) -> int:
     return len(numbers)
 
 
-def update_scope_progress(user_id: UUID, mode: str, exam_scope: str) -> None:
-    existing = (
-        supabase.table("scope_progress")
-        .select("current_round")
-        .eq("user_id", str(user_id))
-        .eq("mode", mode)
-        .eq("exam_scope", exam_scope)
-        .execute()
-        .data
-    )
-    current_round = existing[0]["current_round"] if existing else 1
-
-    total_count = len(get_scope_question_numbers(mode, exam_scope))
+def update_scope_progress(user_id: UUID, mode: str, exam_scope: str, current_round: int) -> None:
+    """current_round 由呼叫端傳入（呼叫端多半已經為了寫入 attempts_log 查過一次，避免
+    這裡再查一次一樣的 scope_progress row）。"""
+    index = get_scope_progress_index(mode, exam_scope)
+    id_to_number = question_number_map(index)
+    total_count = len(index)
 
     # 只看「當前這一輪」的作答紀錄，避免重置後被過去輪次的紀錄誤判成已全部作答
-    attempted_count = count_attempted_in_scope(user_id, mode, exam_scope, current_round)
+    attempted_count = count_attempted_in_scope(user_id, id_to_number, current_round)
     all_attempted = total_count > 0 and attempted_count >= total_count
 
-    wrong_count = count_wrong_in_scope(user_id, mode, exam_scope)
+    wrong_count = count_wrong_in_scope(user_id, id_to_number)
     all_wrong_resolved = wrong_count == 0
 
     supabase.table("scope_progress").upsert(

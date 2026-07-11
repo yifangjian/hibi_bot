@@ -1,4 +1,5 @@
 import re
+import threading
 from uuid import UUID
 
 from app.services import ai_tutor, daily_challenge, feedback_generator, flex_templates, line_client
@@ -31,10 +32,40 @@ def _handle_reading_input(user_id: UUID, text: str, reply_token: str, context: d
     attempt_type = context.get("attempt_type", "first")
 
     stage1_question = get_question(stage1_question_id)
-    stage2_question = get_proverb_stage2(stage1_question_id)
+    stage2_question = get_proverb_stage2(stage1_question)
 
     stage2_correct = bool(stage2_question) and text.strip() == (stage2_question.get("correct_option") or "").strip()
     is_correct = stage1_correct and stage2_correct
+
+    # AI 生成回饋（chat_completion）通常比 finalize_attempt 整段 DB 寫入還慢，而且它不需要
+    # attempt["id"]（只有最後寫 feedback_logs 才需要），所以提前在背景執行緒起跑，跟
+    # finalize_attempt 平行處理，減少使用者實際等待的總時間。每日挑戰的一題不會用到這段
+    # 文字（不顯示回饋卡片），所以只有非挑戰時才需要起這個背景呼叫。
+    feedback_thread = None
+    feedback_result: dict = {}
+    if not challenge_id:
+        explanation_parts = []
+        if stage1_question and stage1_question.get("explanation_rule"):
+            explanation_parts.append(f"【第一階段】{stage1_question['explanation_rule']}")
+        if stage2_question and stage2_question.get("explanation_rule"):
+            explanation_parts.append(f"【讀音】{stage2_question['explanation_rule']}")
+        explanation_text = "\n".join(explanation_parts)
+
+        stage1_selected_text = option_text(stage1_question, stage1_option)
+        stage1_correct_text = option_text(stage1_question, stage1_question.get("correct_option"))
+        stage2_correct_reading = stage2_question.get("correct_option") if stage2_question else ""
+
+        def _run_feedback_generation() -> None:
+            feedback_result["text"] = feedback_generator.generate_feedback_text(
+                context_sentence=stage1_question.get("context_sentence") or "",
+                correct_option_text=f"選項：{stage1_correct_text}；讀音：{stage2_correct_reading}",
+                selected_option_text=f"選項：{stage1_selected_text}；讀音：{text}",
+                explanation_rule=explanation_text,
+                is_correct=is_correct,
+            )
+
+        feedback_thread = threading.Thread(target=_run_feedback_generation)
+        feedback_thread.start()
 
     attempt = finalize_attempt(
         user_id=user_id,
@@ -58,25 +89,9 @@ def _handle_reading_input(user_id: UUID, text: str, reply_token: str, context: d
         daily_challenge.record_answer(user_id, challenge_id, stage1_question["id"], is_correct, reply_token)
         return
 
-    explanation_parts = []
-    if stage1_question and stage1_question.get("explanation_rule"):
-        explanation_parts.append(f"【第一階段】{stage1_question['explanation_rule']}")
-    if stage2_question and stage2_question.get("explanation_rule"):
-        explanation_parts.append(f"【讀音】{stage2_question['explanation_rule']}")
-    explanation_text = "\n".join(explanation_parts)
-
-    stage1_selected_text = option_text(stage1_question, stage1_option)
-    stage1_correct_text = option_text(stage1_question, stage1_question.get("correct_option"))
-    stage2_correct_reading = stage2_question.get("correct_option") if stage2_question else ""
-
-    feedback_text = feedback_generator.generate_and_log_feedback(
-        attempt_log_id=attempt["id"],
-        context_sentence=stage1_question.get("context_sentence") or "",
-        correct_option_text=f"選項：{stage1_correct_text}；讀音：{stage2_correct_reading}",
-        selected_option_text=f"選項：{stage1_selected_text}；讀音：{text}",
-        explanation_rule=explanation_text,
-        is_correct=is_correct,
-    )
+    feedback_thread.join()
+    feedback_text = feedback_result["text"]
+    feedback_generator.log_feedback(attempt["id"], feedback_text)
 
     example_sentence = feedback_generator.extract_example_sentence(stage1_question.get("explanation_rule"))
 

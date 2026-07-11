@@ -3,8 +3,8 @@ from uuid import UUID
 
 from app.db.client import supabase
 from app.services import flex_templates, line_client
-from app.services.progress import count_attempted_in_scope, count_wrong_in_scope, get_scope_question_numbers
-from app.services.question_picker import get_current_scope_and_round
+from app.services.progress import count_attempted_in_scope, count_wrong_in_scope, question_number_map
+from app.services.question_picker import get_current_scope_and_round, get_scope_progress_index
 
 MODES = ["vocab", "proverb", "language_knowledge"]
 
@@ -14,9 +14,11 @@ def _mode_progress_summary(user_id: UUID, mode: str) -> dict[str, Any]:
     if exam_scope is None:
         return {"mode": mode, "no_data": True}
 
-    total = len(get_scope_question_numbers(mode, exam_scope))
-    attempted_count = count_attempted_in_scope(user_id, mode, exam_scope, current_round)
-    wrong_count = count_wrong_in_scope(user_id, mode, exam_scope)
+    index = get_scope_progress_index(mode, exam_scope)
+    id_to_number = question_number_map(index)
+    total = len(index)
+    attempted_count = count_attempted_in_scope(user_id, id_to_number, current_round)
+    wrong_count = count_wrong_in_scope(user_id, id_to_number)
 
     return {
         "mode": mode,
