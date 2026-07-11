@@ -228,4 +228,10 @@ def dispatch(action: Optional[str], params: dict, user_id: UUID, reply_token: st
     if handler is None:
         logger.warning("No handler registered for action=%s params=%s", action, params)
         return
+    # 每個 postback 都先清掉舊的等待狀態（awaiting_reading_input 等）再進 handler，避免
+    # 使用者中途放棄某個流程（例如諺答完第一階段、還沒打讀音就跳去別的選單）之後，殘留的
+    # 舊狀態把使用者之後隨手打的文字誤判成是在回答那個已經放棄的題目。真的需要進入等待
+    # 狀態的 handler（例如 answer 判斷是諺第一階段、ai_tutor_prompt）會在自己的邏輯裡重新
+    # set_session_state，不受這裡影響。
+    clear_session_state(user_id)
     handler(user_id, params, reply_token)

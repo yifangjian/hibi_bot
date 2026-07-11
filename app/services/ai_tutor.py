@@ -6,7 +6,7 @@ from app.db.client import supabase
 from app.services import flex_templates, line_client
 from app.services.ai_client import chat_completion
 from app.services.question_picker import find_question_by_number, get_current_scope_and_round, option_text
-from app.services.session_state import set_session_state
+from app.services.session_state import clear_session_state, set_session_state
 
 TUTOR_INITIAL_SYSTEM_PROMPT = """你是一套日語教學系統的 AI 助教，正在為學習者解析他指定的某一題。
 
@@ -94,7 +94,12 @@ def continue_conversation(user_id: UUID, context: dict, text: str, reply_token: 
         )
         return
 
-    question = supabase.table("questions").select("*").eq("id", question_id).execute().data[0]
+    question_rows = supabase.table("questions").select("*").eq("id", question_id).execute().data
+    if not question_rows:
+        clear_session_state(user_id)
+        line_client.reply_text(reply_token, "找不到這一題的資料了，麻煩重新輸入題號查詢一次。")
+        return
+    question = question_rows[0]
 
     history = (
         supabase.table("ai_conversation_log")
