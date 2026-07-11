@@ -248,6 +248,8 @@ bucket 名稱固定為 `completion-cards`（寫死在 `app/services/completion_c
 
 **部署到 Railway**：專案根目錄的 `Procfile` 會被 Railway 自動偵測作為啟動指令，不需要額外設定 start command。環境變數（`LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`、`SUPABASE_URL`、`SUPABASE_KEY`、`OPENAI_API_KEY`、`INTERNAL_CRON_SECRET` 等，同本機開發設置章節）需要在 Railway 專案的 Variables 裡設定一份。
 
+**Railway 部署地區要跟 Supabase 專案同一個地理區域，不要用預設值**：Railway 預設把服務部署在 `sfo`（舊金山），但這個專案的 Supabase 專案在 `ap-south-1`（孟買）——兩者相距半個地球，會讓每次互動裡的每一次資料庫查詢（單次答題大概 7 次）都多付出一段跨洲延遲，實測後把 Railway 服務改用 `railway service scale southeast-asia=1 sfo=0`（新加坡，Railway 現有選項裡離孟買最近的）解決。之後如果 Supabase 專案換了地區，或是要接新的 Railway 服務，記得先查 `supabase projects list` 確認 Supabase 實際地區，再對應選擇 Railway 的部署地區，不要沿用預設值。OpenAI API 主要在美國，跟 Supabase 兩邊無法同時最佳化時，優先靠近 Supabase——因為單次互動的資料庫來回次數遠多於 AI 呼叫次數。
+
 ## License
 
 本專案採用 [MIT License](LICENSE)。
