@@ -250,6 +250,20 @@ bucket 名稱固定為 `completion-cards`（寫死在 `app/services/completion_c
 
 **Railway 部署地區要跟 Supabase 專案同一個地理區域，不要用預設值**：Railway 預設把服務部署在 `sfo`（舊金山），但這個專案的 Supabase 專案在 `ap-south-1`（孟買）——兩者相距半個地球，會讓每次互動裡的每一次資料庫查詢（單次答題大概 7 次）都多付出一段跨洲延遲，實測後把 Railway 服務改用 `railway service scale southeast-asia=1 sfo=0`（新加坡，Railway 現有選項裡離孟買最近的）解決。之後如果 Supabase 專案換了地區，或是要接新的 Railway 服務，記得先查 `supabase projects list` 確認 Supabase 實際地區，再對應選擇 Railway 的部署地區，不要沿用預設值。OpenAI API 主要在美國，跟 Supabase 兩邊無法同時最佳化時，優先靠近 Supabase——因為單次互動的資料庫來回次數遠多於 AI 呼叫次數。
 
+## 8. 測試
+
+**背景**：「查詢使用者作答狀況時，忘記把目前輪次（`round_number`）考慮進去」這類 bug 已經出現過兩次（Phase 5 的單元進度更新、Phase 7 的選題邏輯），兩次都是重置後舊輪次的作答紀錄被誤判成「這輪已經答過」。這類問題單靠人工記得處理不夠可靠，所以補上了自動化回歸測試釘住正確行為。
+
+```bash
+python -m pytest tests/ -v
+```
+
+`tests/test_round_filtering.py` 針對三個模式（単語／諺／言語知識）各自驗證同一套情境：round 1 作答（含答對、答錯後複習兩種情況）→ 觸發真正的重置流程 → 驗證 round 2 的查詢結果只反映新輪次的狀態，且 round 1 的歷史紀錄在 `attempts_log` 裡完整保留、不受影響。諺語額外驗證 round 2 的候選題目池涵蓋兩種變體（語意選択／文脈穴埋め），不會被 round 1 用過哪個變體侷限住。
+
+測試會建立自己專用的隨機 `exam_scope`（`pytest_<模式>_<亂數>`）跟全新的測試使用者，執行結束後（不管成功或失敗）都會清除自己建立的資料，不會碰到 `active_exam_scope`（正式環境目前教學進度指到的範圍）或任何真實使用者的資料，可以直接對正式的 Supabase 專案跑。
+
+**之後新增任何跟使用者作答狀態有關的查詢邏輯（例如以後如果要加新的統計指標），建議照著 `tests/test_round_filtering.py` 的模式補一組對應測試**——尤其是任何會篩選 `attempts_log`／`wrong_question_state`／`scope_progress` 的新函式，寫完先問自己一次「這個查詢該不該限定在目前這一輪」，是的話就跟著現有測試的情境（作答 → 重置 → 驗證新輪次視角 + 舊輪次歷史保留）補一組測試，養成習慣，不要等到正式資料蒐集期間才發現。
+
 ## License
 
 本專案採用 [MIT License](LICENSE)。
