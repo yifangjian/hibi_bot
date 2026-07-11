@@ -216,6 +216,18 @@ bucket 名稱固定為 `completion-cards`（寫死在 `app/services/completion_c
 - `push_log`：應新增一筆，`challenge_id` 對應剛才產生的挑戰
 - 完成挑戰後，`attempts_log` 裡對應的幾筆應該都有 `daily_challenge_id`（指向這次挑戰）且 `pushed_at` 有值（等於 `push_log.pushed_at`）；相對地，透過「開始練習」自主作答的紀錄 `daily_challenge_id`／`pushed_at` 應維持 `NULL`
 
+## 7. 部署與併發處理
+
+**為什麼需要特別處理併發**：Supabase／OpenAI 的 client 都是同步（非 async）的，webhook 路由雖然宣告成 `async def`，但呼叫這些同步 client 時仍然是阻塞呼叫。如果直接 `await` 呼叫，會讓整個事件迴圈被單一使用者的這次互動整個卡住，導致同時間另一位使用者的請求得排隊等前一位完全處理完（含 AI 生成時間）才能開始處理——多人同時使用時體感會很差，甚至可能造成 LINE webhook 逾時。
+
+因此採用兩層處理：
+1. **`app/routers/webhook.py`／`app/routers/internal.py`**：實際處理 postback／文字訊息／每日推播的同步函式，都透過 Starlette 內建的 `run_in_threadpool` 包起來再 `await`，讓事件迴圈可以在等待這些阻塞呼叫時去處理其他使用者的請求，達到真正的併發（同一次 webhook 請求內的多個 event 仍然依序處理，只有跨請求之間才會併發）。
+2. **`Procfile`**：`uvicorn --workers 2` 開兩個獨立的 worker process，讓請求可以分散到不同 process 上用多核心真正平行處理。目前設 2 是保守預設值，請依實際 Railway 方案的 CPU／記憶體資源調整（worker 數太多在資源有限的方案上反而可能造成記憶體不足）。
+
+**重要：`app/db/client.py`／`app/services/ai_client.py` 的 client 必須是 thread-local，不能是單一共用實例**。這個環境裝了 `h2`（HTTP/2），Supabase／OpenAI 的底層 httpx client 預設會用 HTTP/2，而 HTTP/2 的連線多工在多個「真正的 OS 執行緒」間共用同一個連線並不安全（只有 async 的單執行緒協作式併發才安全）。改成 `run_in_threadpool` 之後，不同使用者的請求會被丟到不同執行緒平行處理，這時如果所有執行緒共用同一個 client，會穩定重現 `httpx.ReadError: [Errno 35] Resource temporarily unavailable`（已用平行請求實測重現＋修復驗證過）。兩個 client 檔案都用 `threading.local()` 讓每個執行緒各自持有、重複利用自己的 client 實例，之後如果要調整這兩個 client 的建立方式，務必維持這個 thread-local 的設計，不要圖方便改回模組層級的單一共用實例。
+
+**部署到 Railway**：專案根目錄的 `Procfile` 會被 Railway 自動偵測作為啟動指令，不需要額外設定 start command。環境變數（`LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`、`SUPABASE_URL`、`SUPABASE_KEY`、`OPENAI_API_KEY`、`INTERNAL_CRON_SECRET` 等，同本機開發設置章節）需要在 Railway 專案的 Variables 裡設定一份。
+
 ## License
 
 本專案採用 [MIT License](LICENSE)。

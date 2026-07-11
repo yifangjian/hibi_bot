@@ -5,6 +5,7 @@ import logging
 from urllib.parse import parse_qsl
 
 from fastapi import APIRouter, Header, HTTPException, Request
+from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
 from app.services import menu_actions
@@ -58,9 +59,14 @@ async def line_webhook(request: Request, x_line_signature: str = Header(None)):
     payload = await request.json()
     for event in payload.get("events", []):
         logger.info("Received LINE event: %s", event)
+        # _handle_postback/_handle_message 內部都是同步阻塞呼叫（Supabase、OpenAI 的
+        # client 都不是 async 的）。丟進 run_in_threadpool 讓事件迴圈不會被單一使用者的
+        # 這次互動整個卡住，才能真正同時處理多個使用者同時傳來的請求。單一請求內的多個
+        # event 仍然依序 await（維持同一次 webhook 呼叫內的處理順序），只有跨請求之間
+        # 才會真正並行。
         if event.get("type") == "postback":
-            _handle_postback(event)
+            await run_in_threadpool(_handle_postback, event)
         elif event.get("type") == "message":
-            _handle_message(event)
+            await run_in_threadpool(_handle_message, event)
 
     return "OK"
