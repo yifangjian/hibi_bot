@@ -14,3 +14,6 @@ supabase/.temp/
 
 # logs
 *.log
+
+# 手動資料庫備份（含真實使用者資料，絕對不能進公開 repo）
+backups/
