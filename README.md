@@ -212,19 +212,21 @@ supabase.storage.create_bucket(
 
 bucket 名稱固定為 `completion-cards`（寫死在 `app/services/completion_card_generator.py`），必須設為 public 才能讓 LINE 的 Image Message 讀取到圖片網址。完成圖卡使用的中文字型（`assets/fonts/NotoSansTC-Bold.otf`）已隨 repo 附上，不需要額外安裝系統字型（Railway 的 Linux 容器不會有 macOS 系統字型，所以特別包進 repo 裡確保部署後仍能正確顯示中文）。
 
-**Railway Cron 設置（每日推播）**：
+**Railway Cron 設置（每日推播）**：這是一個**獨立的服務**（不是 `hibi-bot` 主服務本身的設定），實際部署時踩過兩個坑，特別列出來：
 
-1. `.env` 設定 `INTERNAL_CRON_SECRET`（自訂一組隨機字串，例如 `openssl rand -hex 32`），Railway 服務的環境變數也要設定同樣的值
-2. 在 Railway 專案裡新增一個 Cron Job，排程設定為每天 UTC 04:00（對應台灣時間 UTC+8 中午 12:00）：
+1. 在 Railway 專案裡新增一個空的服務（Empty Service）專門當這個 cron 用（例如命名「每日挑戰推播」）
+2. **這個服務必須指定一個 Docker image 來源**（Settings → Source），例如 `curlimages/curl:latest`——空服務如果沒有指定來源，Railway 沒有東西可以拿來執行 Custom Start Command，`nextCronRunAt` 會一直顯示下次排程時間，但實際上永遠不會真的部署、永遠不會觸發，且不會有任何錯誤提示，容易誤以為設定成功
+3. Settings → Deploy → Cron Schedule，設定為每天 UTC 04:00（對應台灣時間 UTC+8 中午 12:00）：
    ```
    0 4 * * *
    ```
-3. Cron Job 執行的指令是對內部端點發送 POST 請求，帶上密鑰標頭：
+4. 這個服務自己的 Variables 裡設定 `INTERNAL_CRON_SECRET`（值要跟 `hibi-bot` 主服務的一致）
+5. Settings → Deploy → Custom Start Command，填入對內部端點發送 POST 請求的指令：
    ```bash
-   curl -X POST https://<your-railway-app>.up.railway.app/internal/push-daily \
-     -H "X-Cron-Secret: $INTERNAL_CRON_SECRET"
+   curl -X POST https://<your-railway-app>.up.railway.app/internal/push-daily -H "X-Cron-Secret: $INTERNAL_CRON_SECRET"
    ```
-4. 本機測試不用等到中午，可以直接手動觸發（伺服器跑在本機、`.env` 已設定 `INTERNAL_CRON_SECRET` 的前提下）：
+   **注意：`$INTERNAL_CRON_SECRET` 是變數參照語法，要直接照打，不要把它換成任何提示文字或說明文字**——曾經發生過複製指令範例時，把整段「請填入你的密鑰」這種提示文字也一起貼進了實際的 Custom Start Command 欄位，導致每次觸發都用一個不存在的字面字串當密鑰、驗證永遠失敗，而且從 Railway 的角度看部署本身是成功的（服務有正常啟動、執行 curl），只有 log 裡才看得出實際回應是 401，很容易忽略。
+6. 本機測試不用等到中午，可以直接手動觸發（伺服器跑在本機、`.env` 已設定 `INTERNAL_CRON_SECRET` 的前提下）：
    ```bash
    curl -X POST http://localhost:8000/internal/push-daily \
      -H "X-Cron-Secret: <你在 .env 設定的值>"
@@ -263,6 +265,20 @@ python -m pytest tests/ -v
 測試會建立自己專用的隨機 `exam_scope`（`pytest_<模式>_<亂數>`）跟全新的測試使用者，執行結束後（不管成功或失敗）都會清除自己建立的資料，不會碰到 `active_exam_scope`（正式環境目前教學進度指到的範圍）或任何真實使用者的資料，可以直接對正式的 Supabase 專案跑。
 
 **之後新增任何跟使用者作答狀態有關的查詢邏輯（例如以後如果要加新的統計指標），建議照著 `tests/test_round_filtering.py` 的模式補一組對應測試**——尤其是任何會篩選 `attempts_log`／`wrong_question_state`／`scope_progress` 的新函式，寫完先問自己一次「這個查詢該不該限定在目前這一輪」，是的話就跟著現有測試的情境（作答 → 重置 → 驗證新輪次視角 + 舊輪次歷史保留）補一組測試，養成習慣，不要等到正式資料蒐集期間才發現。
+
+## 9. 資料安全與備份
+
+**Row Level Security（RLS）**：`app/db/schema.sql` 裡所有的表都已經在 Supabase 開啟 RLS，且刻意不加任何 policy。這個專案後端用的是 `service_role` key（`.env` 的 `SUPABASE_KEY`），這把 key 本來就會完全略過 RLS，所以開啟 RLS 對現有功能沒有任何影響；真正的目的是擋掉 `anon` key（每個 Supabase 專案都有、原本設計給前端用的公開金鑰）——這個專案是純後端架構，從來不需要用到 `anon` key，RLS 關閉只是白白多一個沒必要的暴露面。**如果之後要加任何會員登入、前端直連 Supabase 的功能，需要改用 `anon` key／Supabase Auth，屆時必須額外設計對應的 RLS policy，不能延用現在「零 policy」的設定**，否則前端會完全連不到任何資料。
+
+**免費方案的限制**：這個專案的 Supabase 目前是免費方案，免費方案**沒有自動備份、也沒有時間點還原（PITR）**，而且**閒置超過一週會自動暫停專案**（每天中午的 Cron 推播本身會固定觸發資料庫活動，實務上大幅降低了閒置暫停的風險，但備份的缺口還是要自己補）。升級到 Pro 方案（$25/月）可以拿到「保留 7 天的每日自動備份」，但這個備份**只能在 Supabase 後台一鍵還原，沒辦法下載成檔案存到自己電腦**；PITR 是 Pro 之外的額外付費項目（約 $100/月起）。
+
+**手動備份（`scripts/backup_database.py`）**：不需要額外安裝 Docker 或 pg_dump，直接用專案已經在用的 Supabase Python client，把每張表的資料匯出成 JSON 檔案：
+
+```bash
+python scripts/backup_database.py
+```
+
+會在 `backups/<時間戳記>/` 底下產生每張表各自的 JSON 檔案（`backups/` 已加進 `.gitignore`，因為裡面是真實使用者資料，絕對不能進公開 repo）。這不是完整的 SQL dump（不含 sequence／function／trigger，這個專案目前也沒有用到這些），但涵蓋所有實際資料列，真的需要復原時的流程是：先用 `app/db/schema.sql` 建好表結構，再把 JSON 資料灌回去。備份頻率目前沒有自動化排程（曾經嘗試用 macOS 的 `launchd` 排程，但這個專案放在「桌面」資料夾，macOS 的隱私保護機制會擋掉背景排程程式的檔案存取，需要手動到「系統設定 → 隱私權與安全性 → 完整磁碟取用權」額外授權才能自動化），目前採取的做法是想到就手動執行一次。
 
 ## License
 
