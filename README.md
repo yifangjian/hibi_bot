@@ -56,7 +56,7 @@ hibi_bot 希望透過學生每天都在使用的 LINE，把練習變成一件低
 
 ## 6. 本機開發設置
 
-**環境需求**：Python 3.11+、[Git LFS](https://git-lfs.com/)（完成圖卡用的中文字型檔案 `assets/fonts/NotoSansTC-Bold.otf` 透過 LFS 存放；clone 前請先安裝並執行 `git lfs install`，否則該檔案只會是一段指標文字而非真正的字型檔）
+**環境需求**：Python 3.11+
 
 ```bash
 # 建立虛擬環境並安裝依賴
@@ -211,6 +211,8 @@ supabase.storage.create_bucket(
 ```
 
 bucket 名稱固定為 `completion-cards`（寫死在 `app/services/completion_card_generator.py`），必須設為 public 才能讓 LINE 的 Image Message 讀取到圖片網址。完成圖卡使用的中文字型（`assets/fonts/NotoSansTC-Bold.otf`）已隨 repo 附上，不需要額外安裝系統字型（Railway 的 Linux 容器不會有 macOS 系統字型，所以特別包進 repo 裡確保部署後仍能正確顯示中文）。
+
+**注意：這個字型檔不能用 Git LFS 存放。** 曾經一度改用 LFS 管理這個 5.8MB 的檔案，結果正式環境完成每日挑戰時穩定出現 `OSError: unknown file format`（Pillow 載入字型失敗）——原因是 **Railway 的建置流程不會解析 Git LFS**，抓下來的只是一段 132 bytes 的指標文字，不是真正的字型二進位檔，本機測試因為本機已經 `git lfs pull` 過所以完全看不出問題。5.8MB 遠低於 GitHub 一般檔案 100MB 的上限，所以直接以一般二進位檔案 commit 進 repo（不透過 LFS）即可，不要為了「repo 大小整潔」又把它改回 LFS。
 
 **Railway Cron 設置（每日推播）**：這是一個**獨立的服務**（不是 `hibi-bot` 主服務本身的設定），實際部署時踩過兩個坑，特別列出來：
 
