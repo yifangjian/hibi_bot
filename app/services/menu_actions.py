@@ -1,56 +1,13 @@
 import logging
-import threading
 from typing import Optional
 from uuid import UUID
 
 from app.services import daily_challenge, feedback_generator, flex_templates, line_client, progress_view, reset_handler
 from app.services.answer_handler import finalize_attempt
-from app.services.question_picker import get_question, option_text, pick_next_question, pick_wrong_question
+from app.services.question_picker import get_question, pick_next_question, pick_wrong_question
 from app.services.session_state import clear_session_state, set_session_state
 
 logger = logging.getLogger("hibi_bot.menu_actions")
-
-
-def _start_feedback_generation(question: dict, opt: Optional[str], is_correct: bool):
-    """単語模式沒有 AI 生成（見 _finish_feedback_text），回傳 (None, {})。其他模式在背景
-    執行緒起跑 AI 呼叫，跟隨後的 finalize_attempt（DB 寫入）平行執行——AI 生成通常比整段
-    DB 寫入還慢，且不需要 attempt id，提前起跑可以減少使用者實際等待的總時間（同樣做法見
-    message_router.py 的 _handle_reading_input）。回傳 (thread, result_dict)。
-    """
-    if question["mode"] == "vocab":
-        return None, {}
-
-    result: dict = {}
-
-    def _run() -> None:
-        result["text"] = feedback_generator.generate_feedback_text(
-            context_sentence=question.get("context_sentence") or "",
-            correct_option_text=option_text(question, question.get("correct_option")),
-            selected_option_text=option_text(question, opt),
-            explanation_rule=question.get("explanation_rule") or "",
-            is_correct=is_correct,
-        )
-
-    thread = threading.Thread(target=_run)
-    thread.start()
-    return thread, result
-
-
-def _finish_feedback_text(
-    question: dict, attempt_id: str, feedback_thread, feedback_result: dict
-) -> tuple[str, Optional[str]]:
-    """回傳 (回饋文字, 例句原文)。単語模式只考讀音，答案本身沒有需要說明的細膩語感，
-    所以不呼叫 AI、不寫 feedback_logs，直接告知正確讀音；諺／言語知識維持原本的 AI
-    生成流程（依 explanation_rule 為解釋依據）。"""
-    if question["mode"] == "vocab":
-        correct_reading = option_text(question, question.get("correct_option"))
-        return f"正確讀音是「{correct_reading}」。", None
-
-    feedback_thread.join()
-    feedback_text = feedback_result["text"]
-    feedback_generator.log_feedback(attempt_id, feedback_text)
-    example_sentence = feedback_generator.extract_example_sentence(question.get("explanation_rule"))
-    return feedback_text, example_sentence
 
 
 def _serve_next_question(user_id: UUID, mode: Optional[str], reply_token: str) -> None:
@@ -142,11 +99,11 @@ def handle_review_answer(user_id: UUID, params: dict, reply_token: str) -> None:
         return
 
     # 単語 / 言語知識：單階段，直接判定並寫入（attempt_type=review，答對會把這題從 wrong 標記為 resolved）
-    feedback_thread, feedback_result = _start_feedback_generation(question, opt, is_correct)
+    feedback_thread, feedback_result = feedback_generator.start_feedback_generation(question, opt, is_correct)
     attempt = finalize_attempt(
         user_id=user_id, question=question, is_correct=is_correct, selected_option=opt, attempt_type="review"
     )
-    feedback_text, example_sentence = _finish_feedback_text(question, attempt["id"], feedback_thread, feedback_result)
+    feedback_text, example_sentence = feedback_generator.finish_feedback_text(question, attempt["id"], feedback_thread, feedback_result)
     line_client.reply_flex(
         reply_token,
         alt_text="複習結果",
@@ -186,9 +143,9 @@ def handle_answer(user_id: UUID, params: dict, reply_token: str) -> None:
         return
 
     # 単語 / 言語知識：單階段，直接判定並寫入
-    feedback_thread, feedback_result = _start_feedback_generation(question, opt, is_correct)
+    feedback_thread, feedback_result = feedback_generator.start_feedback_generation(question, opt, is_correct)
     attempt = finalize_attempt(user_id=user_id, question=question, is_correct=is_correct, selected_option=opt)
-    feedback_text, example_sentence = _finish_feedback_text(question, attempt["id"], feedback_thread, feedback_result)
+    feedback_text, example_sentence = feedback_generator.finish_feedback_text(question, attempt["id"], feedback_thread, feedback_result)
     line_client.reply_flex(
         reply_token,
         alt_text="答題結果",
@@ -206,6 +163,10 @@ def handle_daily_challenge_answer(user_id: UUID, params: dict, reply_token: str)
     daily_challenge.handle_challenge_answer(user_id, params, reply_token)
 
 
+def handle_daily_challenge_continue(user_id: UUID, params: dict, reply_token: str) -> None:
+    daily_challenge.handle_challenge_continue(user_id, params.get("challenge_id"), reply_token)
+
+
 ACTION_HANDLERS = {
     "enter_mode": handle_enter_mode,
     "view_progress": handle_view_progress,
@@ -220,6 +181,7 @@ ACTION_HANDLERS = {
     "review_answer": handle_review_answer,
     "daily_challenge_start": handle_daily_challenge_start,
     "daily_challenge_answer": handle_daily_challenge_answer,
+    "daily_challenge_continue": handle_daily_challenge_continue,
 }
 
 

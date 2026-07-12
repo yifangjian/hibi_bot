@@ -1,10 +1,12 @@
 import re
+import threading
 from typing import Optional
 from uuid import UUID
 
 from app.config import settings
 from app.db.client import supabase
 from app.services.ai_client import chat_completion
+from app.services.question_picker import option_text
 
 FEEDBACK_SYSTEM_PROMPT = """你是一套日語教學系統的解釋型回饋生成器，任務是向學習者說明他剛剛作答的這一題「為什麼這個答案正確／錯誤」以及「正確用法的判斷依據」。
 
@@ -86,3 +88,45 @@ def generate_and_log_feedback(
     )
     log_feedback(attempt_log_id, text)
     return text
+
+
+def start_feedback_generation(question: dict, opt: Optional[str], is_correct: bool):
+    """単語模式沒有 AI 生成（見 finish_feedback_text），回傳 (None, {})。其他模式在背景
+    執行緒起跑 AI 呼叫，跟隨後的 finalize_attempt（DB 寫入）平行執行——AI 生成通常比整段
+    DB 寫入還慢，且不需要 attempt id，提前起跑可以減少使用者實際等待的總時間。單語／
+    諺／言語知識三模式的一般練習、複習、每日挑戰共用這組邏輯。回傳 (thread, result_dict)。
+    """
+    if question["mode"] == "vocab":
+        return None, {}
+
+    result: dict = {}
+
+    def _run() -> None:
+        result["text"] = generate_feedback_text(
+            context_sentence=question.get("context_sentence") or "",
+            correct_option_text=option_text(question, question.get("correct_option")),
+            selected_option_text=option_text(question, opt),
+            explanation_rule=question.get("explanation_rule") or "",
+            is_correct=is_correct,
+        )
+
+    thread = threading.Thread(target=_run)
+    thread.start()
+    return thread, result
+
+
+def finish_feedback_text(
+    question: dict, attempt_id: UUID, feedback_thread, feedback_result: dict
+) -> tuple[str, Optional[str]]:
+    """回傳 (回饋文字, 例句原文)。単語模式只考讀音，答案本身沒有需要說明的細膩語感，
+    所以不呼叫 AI、不寫 feedback_logs，直接告知正確讀音；諺／言語知識維持原本的 AI
+    生成流程（依 explanation_rule 為解釋依據）。"""
+    if question["mode"] == "vocab":
+        correct_reading = option_text(question, question.get("correct_option"))
+        return f"正確讀音是「{correct_reading}」。", None
+
+    feedback_thread.join()
+    feedback_text = feedback_result["text"]
+    log_feedback(attempt_id, feedback_text)
+    example_sentence = extract_example_sentence(question.get("explanation_rule"))
+    return feedback_text, example_sentence
