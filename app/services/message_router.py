@@ -39,33 +39,32 @@ def _handle_reading_input(user_id: UUID, text: str, reply_token: str, context: d
 
     # AI 生成回饋（chat_completion）通常比 finalize_attempt 整段 DB 寫入還慢，而且它不需要
     # attempt["id"]（只有最後寫 feedback_logs 才需要），所以提前在背景執行緒起跑，跟
-    # finalize_attempt 平行處理，減少使用者實際等待的總時間。每日挑戰的一題不會用到這段
-    # 文字（不顯示回饋卡片），所以只有非挑戰時才需要起這個背景呼叫。
-    feedback_thread = None
+    # finalize_attempt 平行處理，減少使用者實際等待的總時間。一般練習跟每日挑戰都需要
+    # 顯示解析，共用同一套邏輯。
+    explanation_parts = []
+    if stage1_question and stage1_question.get("explanation_rule"):
+        explanation_parts.append(f"【第一階段】{stage1_question['explanation_rule']}")
+    if stage2_question and stage2_question.get("explanation_rule"):
+        explanation_parts.append(f"【讀音】{stage2_question['explanation_rule']}")
+    explanation_text = "\n".join(explanation_parts)
+
+    stage1_selected_text = option_text(stage1_question, stage1_option)
+    stage1_correct_text = option_text(stage1_question, stage1_question.get("correct_option"))
+    stage2_correct_reading = stage2_question.get("correct_option") if stage2_question else ""
+
     feedback_result: dict = {}
-    if not challenge_id:
-        explanation_parts = []
-        if stage1_question and stage1_question.get("explanation_rule"):
-            explanation_parts.append(f"【第一階段】{stage1_question['explanation_rule']}")
-        if stage2_question and stage2_question.get("explanation_rule"):
-            explanation_parts.append(f"【讀音】{stage2_question['explanation_rule']}")
-        explanation_text = "\n".join(explanation_parts)
 
-        stage1_selected_text = option_text(stage1_question, stage1_option)
-        stage1_correct_text = option_text(stage1_question, stage1_question.get("correct_option"))
-        stage2_correct_reading = stage2_question.get("correct_option") if stage2_question else ""
+    def _run_feedback_generation() -> None:
+        feedback_result["text"] = feedback_generator.generate_feedback_text(
+            context_sentence=stage1_question.get("context_sentence") or "",
+            correct_option_text=f"選項：{stage1_correct_text}；讀音：{stage2_correct_reading}",
+            selected_option_text=f"選項：{stage1_selected_text}；讀音：{text}",
+            explanation_rule=explanation_text,
+            is_correct=is_correct,
+        )
 
-        def _run_feedback_generation() -> None:
-            feedback_result["text"] = feedback_generator.generate_feedback_text(
-                context_sentence=stage1_question.get("context_sentence") or "",
-                correct_option_text=f"選項：{stage1_correct_text}；讀音：{stage2_correct_reading}",
-                selected_option_text=f"選項：{stage1_selected_text}；讀音：{text}",
-                explanation_rule=explanation_text,
-                is_correct=is_correct,
-            )
-
-        feedback_thread = threading.Thread(target=_run_feedback_generation)
-        feedback_thread.start()
+    feedback_thread = threading.Thread(target=_run_feedback_generation)
+    feedback_thread.start()
 
     attempt = finalize_attempt(
         user_id=user_id,
@@ -84,23 +83,30 @@ def _handle_reading_input(user_id: UUID, text: str, reply_token: str, context: d
     )
     clear_session_state(user_id)
 
-    if challenge_id:
-        # 每日挑戰的一題：不顯示回饋卡片，直接推進到下一題／完成流程
-        daily_challenge.record_answer(user_id, challenge_id, stage1_question["id"], is_correct, reply_token)
-        return
-
     feedback_thread.join()
     feedback_text = feedback_result["text"]
     feedback_generator.log_feedback(attempt["id"], feedback_text)
 
     example_sentence = feedback_generator.extract_example_sentence(stage1_question.get("explanation_rule"))
 
-    retry_action = "review_wrong" if attempt_type == "review" else "next_question"
+    if challenge_id:
+        # 每日挑戰的一題：先推進挑戰進度（不等使用者按下一題），再顯示解析回饋卡片，
+        # 卡片上的「下一題」按鈕會走 daily_challenge_continue，由使用者主動推進。
+        daily_challenge.advance_challenge(challenge_id, stage1_question["id"], is_correct)
+        retry_action = "daily_challenge_continue"
+    else:
+        retry_action = "review_wrong" if attempt_type == "review" else "next_question"
+
     line_client.reply_flex(
         reply_token,
         alt_text="答題結果",
         contents=flex_templates.build_feedback_card(
-            is_correct, feedback_text, mode, retry_action=retry_action, example_sentence=example_sentence
+            is_correct,
+            feedback_text,
+            mode,
+            retry_action=retry_action,
+            example_sentence=example_sentence,
+            challenge_id=challenge_id,
         ),
     )
 

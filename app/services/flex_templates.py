@@ -308,13 +308,25 @@ def build_feedback_card(
     mode: str,
     retry_action: str = "next_question",
     example_sentence: Optional[str] = None,
+    challenge_id: Optional[str] = None,
 ) -> dict:
     """三模式共用的回饋卡片。retry_action 預設 "next_question"（一般練習的「再練一題」），
-    複習錯題模式會傳入 "review_wrong"，按鈕文字與行為會跟著切換成「繼續複習」。
+    複習錯題模式會傳入 "review_wrong"，按鈕文字與行為會跟著切換成「繼續複習」；每日挑戰
+    會傳入 "daily_challenge_continue"，切換成「下一題」，並需要一併傳入 challenge_id
+    （挑戰答完後推進到下一題／完成流程要用到，見 daily_challenge.handle_challenge_continue）。
     example_sentence 是解析裡的【例文】原文（未經 AI 改寫），AI 生成回饋常會把例句省略掉，
     所以額外原文顯示；沒有的話（例如非諺語模式）就不顯示這個區塊。
     """
-    retry_label = "繼續複習" if retry_action == "review_wrong" else "再練一題"
+    if retry_action == "review_wrong":
+        retry_label = "繼續複習"
+    elif retry_action == "daily_challenge_continue":
+        retry_label = "下一題"
+    else:
+        retry_label = "再練一題"
+
+    postback_data = f"action={retry_action}&mode={mode}"
+    if challenge_id:
+        postback_data += f"&challenge_id={challenge_id}"
 
     contents: list[dict] = [
         {
@@ -356,7 +368,7 @@ def build_feedback_card(
             "action": {
                 "type": "postback",
                 "label": retry_label,
-                "data": f"action={retry_action}&mode={mode}",
+                "data": postback_data,
                 "displayText": retry_label,
             },
         }

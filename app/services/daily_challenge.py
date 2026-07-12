@@ -5,7 +5,7 @@ from typing import Any
 from uuid import UUID
 
 from app.db.client import supabase
-from app.services import completion_card_generator, flex_templates, line_client
+from app.services import completion_card_generator, feedback_generator, flex_templates, line_client
 from app.services.answer_handler import finalize_attempt
 from app.services.question_picker import get_current_scope_and_round, get_available_questions_in_scope, get_question
 from app.services.session_state import set_session_state
@@ -140,13 +140,12 @@ def _handle_completion(user_id: UUID, challenge: dict[str, Any], reply_token: st
     line_client.switch_rich_menu_to_main(line_user_id)
 
 
-def record_answer(user_id: UUID, challenge_id: str, question_id: str, is_correct: bool, reply_token: str) -> None:
-    """紀錄這一題挑戰結果，推進到下一題或觸發完成流程。"""
+def advance_challenge(challenge_id: str, question_id: str, is_correct: bool) -> dict[str, Any]:
+    """紀錄這一題的挑戰結果、推進 current_index。不在這裡送出任何回覆——呼叫端會先顯示
+    這一題的解析回饋卡片，使用者按下「下一題」才會真正推進到下一題／觸發完成流程
+    （見 handle_challenge_continue）。"""
     rows = supabase.table("daily_challenge").select("*").eq("id", challenge_id).execute().data
-    challenge = rows[0] if rows else None
-    if not challenge:
-        line_client.reply_text(reply_token, "找不到這個挑戰，請稍後再試。")
-        return
+    challenge = rows[0]
 
     results = challenge["results"] + [{"question_id": question_id, "is_correct": is_correct}]
     new_index = challenge["current_index"] + 1
@@ -157,12 +156,24 @@ def record_answer(user_id: UUID, challenge_id: str, question_id: str, is_correct
         update_payload["completed"] = True
         update_payload["completed_at"] = datetime.now(timezone.utc).isoformat()
 
-    updated = supabase.table("daily_challenge").update(update_payload).eq("id", challenge_id).execute().data[0]
+    return supabase.table("daily_challenge").update(update_payload).eq("id", challenge_id).execute().data[0]
 
-    if completed:
-        _handle_completion(user_id, updated, reply_token)
+
+def handle_challenge_continue(user_id: UUID, challenge_id: str, reply_token: str) -> None:
+    """解析回饋卡片的「下一題」按鈕：推進到下一題，或若已經是最後一題則觸發完成流程。"""
+    rows = supabase.table("daily_challenge").select("*").eq("id", challenge_id).execute().data
+    challenge = rows[0] if rows else None
+    if not challenge:
+        line_client.reply_text(reply_token, "找不到這個挑戰，請稍後再試。")
+        return
+    if is_expired(challenge):
+        line_client.reply_text(reply_token, "這是之前的每日挑戰，已經結束囉。")
+        return
+
+    if challenge["completed"]:
+        _handle_completion(user_id, challenge, reply_token)
     else:
-        serve_current_question(user_id, updated, reply_token)
+        serve_current_question(user_id, challenge, reply_token)
 
 
 def handle_challenge_answer(user_id: UUID, params: dict, reply_token: str) -> None:
@@ -206,15 +217,35 @@ def handle_challenge_answer(user_id: UUID, params: dict, reply_token: str) -> No
         )
         return
 
-    # 単語 / 言語知識：單階段，直接判定、寫入，並推進挑戰進度
-    finalize_attempt(
+    # 単語 / 言語知識：單階段，直接判定、寫入，並顯示解析回饋卡片（AI 生成回饋跟
+    # finalize_attempt 的 DB 寫入平行執行，減少使用者等待時間，做法同一般練習模式）。
+    # 挑戰進度（current_index／completed）在這裡就先推進寫入，不等使用者按下一題，
+    # 避免使用者看完回饋卡片後中途離開，這一題的挑戰進度沒有被記錄下來。
+    feedback_thread, feedback_result = feedback_generator.start_feedback_generation(question, opt, is_correct)
+    attempt = finalize_attempt(
         user_id=user_id,
         question=question,
         is_correct=is_correct,
         selected_option=opt,
         daily_challenge_id=challenge_id,
     )
-    record_answer(user_id, challenge_id, question["id"], is_correct, reply_token)
+    feedback_text, example_sentence = feedback_generator.finish_feedback_text(
+        question, attempt["id"], feedback_thread, feedback_result
+    )
+    advance_challenge(challenge_id, question["id"], is_correct)
+
+    line_client.reply_flex(
+        reply_token,
+        alt_text="答題結果",
+        contents=flex_templates.build_feedback_card(
+            is_correct,
+            feedback_text,
+            question["mode"],
+            retry_action="daily_challenge_continue",
+            example_sentence=example_sentence,
+            challenge_id=challenge_id,
+        ),
+    )
 
 
 def run_daily_push() -> dict[str, Any]:

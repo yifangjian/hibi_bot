@@ -45,7 +45,7 @@ hibi_bot 希望透過學生每天都在使用的 LINE，把練習變成一件低
 - **圖文選單設計**：四層選單（主選單／模式選單／開始練習子選單／錯題模式子選單），透過 LINE 原生 `richmenuswitch` 切換並同步回傳 postback 供後端記錄行為
 - **解釋型回饋機制**：作答後由 OpenAI API 根據該題的 `explanation_rule` 即時生成個別化解釋（system prompt 明確限制 AI 只能依據 `explanation_rule` 說明，不得引入題庫外的文法知識；也明確要求說明句子本身要翻譯成繁體中文，不能把解釋依據裡的日文原句直接照抄進回覆），生成結果存入 `feedback_logs`。**単語模式例外**：単語題庫目前是純讀音測驗、沒有解析內容可以當依據，答對答錯本身也沒有需要 AI 說明的細膩語感，所以答題後直接顯示正確讀音，不呼叫 OpenAI、不寫入 `feedback_logs`（見 `app/services/menu_actions.py` 的 `_build_feedback_text`）
 - **AI 助教**：使用者輸入題號後可取得該題的解析（Flex 卡片呈現，system prompt 明確禁止 markdown 語法避免在 LINE 顯示異常）；解析後進入追問模式，可直接在聊天室打字繼續問，對話歷程存入 `ai_conversation_log`，每日追問輪次有上限（預設 10 輪，逾限不呼叫 OpenAI，回覆卡片會顯示剩餘次數）；卡片下方提供「問其他題」「繼續練習」兩個按鈕方便銜接下一步
-- **每日挑戰**：Railway Cron 每天固定時間（台灣時間中午 12:00）為每位使用者隨機產生一份橫跨三模式、最多 5 題的挑戰並推播；每題作答同步寫入對應模式的既有進度系統（`attempts_log`／`wrong_question_state`／`scope_progress`，與自主練習共用同一套邏輯），完成後生成含使用者名稱、答對率、日期的圖卡（Pillow 動態產生、存於 Supabase Storage），選單自動切回主選單；中途離開可從聊天室的舊卡片接續作答，跨天則視為過期
+- **每日挑戰**：Railway Cron 每天固定時間（台灣時間中午 12:00）為每位使用者隨機產生一份橫跨三模式、最多 5 題的挑戰並推播；每題作答同步寫入對應模式的既有進度系統（`attempts_log`／`wrong_question_state`／`scope_progress`，與自主練習共用同一套邏輯），每答完一題都會顯示解析回饋卡片（跟自主練習共用同一套 AI 生成邏輯，単語模式一樣是直接顯示正確讀音、不呼叫 AI），使用者按「下一題」才會真正推進到下一題／觸發完成流程——挑戰進度本身在顯示回饋卡片前就先寫入，不等使用者按下一題，避免看完解析後中途離開導致這一題沒被記錄到；完成後生成含使用者名稱、答對率、日期的圖卡（Pillow 動態產生、存於 Supabase Storage），選單自動切回主選單；中途離開可從聊天室的舊卡片接續作答，跨天則視為過期
 - **錯題模式**：從 `wrong_question_state` 挑一題該模式底下狀態仍是 `wrong` 的題目複習，答對後自動標記為 `resolved` 並可連續複習下一題（`attempt_type` 記為 `review`，與一般練習的 `first` 區分）；沒有待複習的錯題時會明確告知
 - **重置**：需該範圍當下輪次「全部作答完」且「沒有任何待複習錯題」才允許，只把 `scope_progress` 的追蹤狀態打回起點（`current_round` +1），不觸碰 `attempts_log`／`wrong_question_state` 等歷史紀錄，過去每一輪的資料完整保留可供研究分析
 - **進度查詢**：一張卡片同時顯示三模式各自的範圍、輪次、本輪作答進度、待複習錯題數，以及每日挑戰「累計完成次數」（刻意不做「連續天數」，避免使用者因為某天沒使用而產生「破功」的挫折感，呼應本研究降低能力感焦慮的目標）
@@ -253,6 +253,14 @@ bucket 名稱固定為 `completion-cards`（寫死在 `app/services/completion_c
 **部署到 Railway**：專案根目錄的 `Procfile` 會被 Railway 自動偵測作為啟動指令，不需要額外設定 start command。環境變數（`LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`、`SUPABASE_URL`、`SUPABASE_KEY`、`OPENAI_API_KEY`、`INTERNAL_CRON_SECRET` 等，同本機開發設置章節）需要在 Railway 專案的 Variables 裡設定一份。
 
 **Railway 部署地區要跟 Supabase 專案同一個地理區域，不要用預設值**：Railway 預設把服務部署在 `sfo`（舊金山），但這個專案的 Supabase 專案在 `ap-south-1`（孟買）——兩者相距半個地球，會讓每次互動裡的每一次資料庫查詢（單次答題大概 7 次）都多付出一段跨洲延遲，實測後把 Railway 服務改用 `railway service scale southeast-asia=1 sfo=0`（新加坡，Railway 現有選項裡離孟買最近的）解決。之後如果 Supabase 專案換了地區，或是要接新的 Railway 服務，記得先查 `supabase projects list` 確認 Supabase 實際地區，再對應選擇 Railway 的部署地區，不要沿用預設值。OpenAI API 主要在美國，跟 Supabase 兩邊無法同時最佳化時，優先靠近 Supabase——因為單次互動的資料庫來回次數遠多於 AI 呼叫次數。
+
+**併發負載測試（`scripts/load_test_webhook.py`）**：課堂上老師會請全班同時加好友、當場開始使用（一次約 30-40 人併發），實際對正式環境跑過一次驗證：
+
+```bash
+python scripts/load_test_webhook.py --concurrency 35 --url https://<your-railway-app>.up.railway.app/webhook
+```
+
+用假的 line_user_id 模擬多位使用者同時觸發「下一題」，簽出合法的 LINE webhook 簽章直接打正式環境，量測回應時間，跑完自動清除假使用者留下的所有資料列（`users`／`scope_progress`／`attempts_log` 等）。這是真的會對正式資料庫寫入再刪除資料的操作，不要沒事就跑，只有在預期會有一波真實併發流量（例如課堂當場推廣）之前想確認負載表現時才需要用到。跑出來的結果（35 併發、100% 成功、全部在 3.2 秒內完成）：目前的 2-worker + thread-local client + run_in_threadpool 架構足以應付這個規模，不需要額外調整。
 
 ## 8. 測試
 
