@@ -56,6 +56,15 @@ def option_text(question: dict[str, Any], option_id: Optional[str]) -> str:
     return option_id or ""
 
 
+def is_correct_option(question: dict[str, Any], opt: Optional[str]) -> bool:
+    """比對使用者選的 option id 是否為正確答案。correct_option 絕大多數情況是單一 id，
+    但少數題目有兩種都算正確的答案（例如「異国情緒」的讀音 じょうちょ／じょうしょ
+    兩種都對），這種情況資料會用「、」分隔多個都算正確的 id，例如 "a、c"——這裡兩種
+    情況都要能正確判斷（單一 id 的題目 split 後只有自己一個元素，行為不變）。"""
+    correct = question.get("correct_option") or ""
+    return opt in correct.split("、")
+
+
 def get_current_scope_and_round(user_id: str, mode: str) -> tuple[Optional[str], int]:
     """回傳 (exam_scope, current_round)。exam_scope 來自 active_exam_scope（由研究者/
     教師手動指定目前教學進度對應的範圍），若尚未設定則回傳 (None, 1)。current_round

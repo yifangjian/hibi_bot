@@ -7,7 +7,12 @@ from uuid import UUID
 from app.db.client import supabase
 from app.services import completion_card_generator, feedback_generator, flex_templates, line_client
 from app.services.answer_handler import finalize_attempt
-from app.services.question_picker import get_current_scope_and_round, get_available_questions_in_scope, get_question
+from app.services.question_picker import (
+    get_current_scope_and_round,
+    get_available_questions_in_scope,
+    get_question,
+    is_correct_option,
+)
 from app.services.session_state import set_session_state
 
 logger = logging.getLogger("hibi_bot.daily_challenge")
@@ -195,7 +200,7 @@ def handle_challenge_answer(user_id: UUID, params: dict, reply_token: str) -> No
         line_client.reply_text(reply_token, "找不到這一題，請重新開始挑戰。")
         return
 
-    is_correct = opt == question.get("correct_option")
+    is_correct = is_correct_option(question, opt)
 
     if question["mode"] == "proverb" and question.get("stage") in ("semantic_choice", "situational_choice"):
         # 諺第一階段：先記錄選擇，轉入讀音輸入階段，尚未寫入 attempts_log／daily_challenge
