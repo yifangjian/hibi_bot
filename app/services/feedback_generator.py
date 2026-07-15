@@ -122,8 +122,9 @@ def finish_feedback_text(
     所以不呼叫 AI、不寫 feedback_logs，直接告知正確讀音；諺／言語知識維持原本的 AI
     生成流程（依 explanation_rule 為解釋依據）。"""
     if question["mode"] == "vocab":
-        correct_reading = option_text(question, question.get("correct_option"))
-        return f"正確讀音是「{correct_reading}」。", None
+        correct_ids = (question.get("correct_option") or "").split("、")
+        readings = "、".join(option_text(question, cid) for cid in correct_ids)
+        return f"正確讀音是「{readings}」。", None
 
     feedback_thread.join()
     feedback_text = feedback_result["text"]
