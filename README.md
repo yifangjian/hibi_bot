@@ -49,6 +49,7 @@ hibi_bot 希望透過學生每天都在使用的 LINE，把練習變成一件低
 - **錯題模式**：從 `wrong_question_state` 挑一題該模式底下狀態仍是 `wrong` 的題目複習，答對後自動標記為 `resolved` 並可連續複習下一題（`attempt_type` 記為 `review`，與一般練習的 `first` 區分）；沒有待複習的錯題時會明確告知
 - **重置**：需該範圍當下輪次「全部作答完」且「沒有任何待複習錯題」才允許，只把 `scope_progress` 的追蹤狀態打回起點（`current_round` +1），不觸碰 `attempts_log`／`wrong_question_state` 等歷史紀錄，過去每一輪的資料完整保留可供研究分析
 - **進度查詢**：一張卡片同時顯示三模式各自的範圍、輪次、本輪作答進度、待複習錯題數，以及每日挑戰「累計完成次數」（刻意不做「連續天數」，避免使用者因為某天沒使用而產生「破功」的挫折感，呼應本研究降低能力感焦慮的目標）
+- **輸入中動畫**：呼叫 AI 生成解析／回覆前（`app/services/line_client.py` 的 `show_loading_animation()`），先呼叫 LINE 的 Loading Animation API 讓使用者看到「輸入中」提示，只套用在真的會等比較久的互動（`answer`／`review_answer`／`daily_challenge_answer` 這三個 postback action，以及文字訊息裡 `awaiting_reading_input`／`awaiting_ai_tutor_question_number`／`in_ai_tutor_conversation` 這三種等待狀態），不套用在「下一題」「查進度」這類幾乎瞬間回覆的動作（動畫一閃即逝、沒有意義）。動畫會在我們真正送出回覆的當下自動消失，`loading_seconds` 故意設最大值 60 秒當保險，不會有「動畫消失了但答案還沒出現」的狀況；呼叫本身包在 try/except 裡，這只是體驗加分，失敗不該影響真正的回覆流程。
 
 ## 5. 研究背景
 
