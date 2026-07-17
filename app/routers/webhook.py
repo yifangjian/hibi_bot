@@ -11,11 +11,24 @@ from app.config import settings
 from app.services import line_client, menu_actions
 from app.services.menu_interaction import log_menu_interaction
 from app.services.message_router import handle_text_message
+from app.services.session_state import get_session_state
 from app.services.users import get_or_create_user
 
 logger = logging.getLogger("hibi_bot.webhook")
 
 router = APIRouter(prefix="/webhook", tags=["webhook"])
+
+# 這些互動會呼叫 AI 生成解析／回覆，等待感明顯，才需要顯示「輸入中」動畫；「下一題」
+# 「查進度」這類幾乎瞬間回覆的動作動畫只會一閃即逝，體驗上沒有差別，故意不套用。
+SLOW_POSTBACK_ACTIONS = {"answer", "review_answer", "daily_challenge_answer"}
+SLOW_TEXT_PENDING_ACTIONS = {"awaiting_reading_input", "awaiting_ai_tutor_question_number", "in_ai_tutor_conversation"}
+
+
+def _show_loading_animation(line_user_id: str) -> None:
+    try:
+        line_client.show_loading_animation(line_user_id)
+    except Exception:
+        logger.exception("show_loading_animation failed for line_user_id=%s", line_user_id)
 
 
 def _verify_signature(body: bytes, signature: str) -> bool:
@@ -45,6 +58,9 @@ def _handle_postback(event: dict) -> None:
         action = params.pop("action", None)
         mode = params.get("mode")
 
+        if action in SLOW_POSTBACK_ACTIONS:
+            _show_loading_animation(line_user_id)
+
         user_id = get_or_create_user(line_user_id)
         log_menu_interaction(user_id=user_id, action=action, mode=mode)
         menu_actions.dispatch(action, params, user_id, reply_token)
@@ -63,6 +79,12 @@ def _handle_message(event: dict) -> None:
         text = event["message"]["text"]
 
         user_id = get_or_create_user(line_user_id)
+
+        state = get_session_state(user_id)
+        pending_action = state.get("pending_action") if state else None
+        if pending_action in SLOW_TEXT_PENDING_ACTIONS:
+            _show_loading_animation(line_user_id)
+
         handle_text_message(user_id, text, reply_token)
     except Exception:
         logger.exception("Unhandled error handling message event: %s", event)

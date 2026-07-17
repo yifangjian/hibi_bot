@@ -6,6 +6,7 @@ from linebot.v3.messaging import (
     MessagingApi,
     PushMessageRequest,
     ReplyMessageRequest,
+    ShowLoadingAnimationRequest,
     TextMessage,
 )
 from linebot.v3.messaging.models.flex_container import FlexContainer
@@ -49,6 +50,17 @@ def push_flex(line_user_id: str, alt_text: str, contents: dict) -> None:
             to=line_user_id,
             messages=[FlexMessage(alt_text=alt_text, contents=FlexContainer.from_dict(contents))],
         )
+    )
+
+
+def show_loading_animation(line_user_id: str) -> None:
+    """顯示「輸入中」動畫，用在需要呼叫 AI／有明顯等待感的互動上。動畫會在我們真正送出
+    回覆的當下自動消失，或是 loading_seconds 秒之後自動消失，取先發生的那個——所以秒數
+    設最大值 60 沒有風險，不會有「動畫消失了但答案還沒出現」的狀況。呼叫端應該把這個包在
+    try/except 裡：這只是體驗加分，失敗也不該影響真正的回覆流程。
+    """
+    _client().show_loading_animation(
+        ShowLoadingAnimationRequest(chat_id=line_user_id, loading_seconds=60)
     )
 
 
