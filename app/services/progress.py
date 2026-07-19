@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from app.db.client import supabase
+from app.db.client import fetch_all_rows, supabase
 from app.services.question_picker import get_scope_progress_index
 
 
@@ -13,26 +13,22 @@ def question_number_map(index: dict[int, list[str]]) -> dict[str, int]:
 
 
 def count_attempted_in_scope(user_id: UUID, id_to_number: dict[str, int], round_number: int) -> int:
-    attempted = (
-        supabase.table("attempts_log")
+    attempted = fetch_all_rows(
+        lambda: supabase.table("attempts_log")
         .select("question_id")
         .eq("user_id", str(user_id))
         .eq("round_number", round_number)
-        .execute()
-        .data
     )
     numbers = {id_to_number[row["question_id"]] for row in attempted if row["question_id"] in id_to_number}
     return len(numbers)
 
 
 def count_wrong_in_scope(user_id: UUID, id_to_number: dict[str, int]) -> int:
-    wrong = (
-        supabase.table("wrong_question_state")
+    wrong = fetch_all_rows(
+        lambda: supabase.table("wrong_question_state")
         .select("question_id")
         .eq("user_id", str(user_id))
         .eq("status", "wrong")
-        .execute()
-        .data
     )
     numbers = {id_to_number[row["question_id"]] for row in wrong if row["question_id"] in id_to_number}
     return len(numbers)

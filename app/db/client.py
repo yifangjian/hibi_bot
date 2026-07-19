@@ -25,3 +25,28 @@ class _SupabaseProxy:
 
 
 supabase: Client = _SupabaseProxy()  # type: ignore[assignment]
+
+_PAGE_SIZE = 1000
+
+
+def fetch_all_rows(build_query) -> list[dict]:
+    """PostgREST 預設單次查詢最多回傳 1000 筆，不分頁的話會被悄悄截斷、遺漏資料——
+    這個 bug 曾經真的發生過：使用者累積作答夠多之後，`attempts_log` 依 user_id 查詢
+    的筆數超過 1000 筆，導致某些已作答的題目被截斷、沒被算進「已作答」名單，因而被
+    誤判成還沒作答過、重複出現在下一題。任何理論上筆數可能隨使用者活躍度或時間累積到
+    超過千筆的查詢（例如依 user_id 查 attempts_log／wrong_question_state，完全沒有
+    用 mode／exam_scope 進一步限縮的情況）都應該用這個 helper，不要直接 execute()。
+
+    build_query 是一個不帶 range 的查詢建構函式，每次呼叫要回傳全新的 query builder
+    （不能重複使用同一個 query 物件呼叫多次 range，supabase-py 的物件 execute 過一次
+    後就不能再用）。
+    """
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        page = build_query().range(offset, offset + _PAGE_SIZE - 1).execute().data
+        rows.extend(page)
+        if len(page) < _PAGE_SIZE:
+            break
+        offset += _PAGE_SIZE
+    return rows
