@@ -2,7 +2,7 @@ import random
 from typing import Any, Optional
 from uuid import UUID
 
-from app.db.client import supabase
+from app.db.client import fetch_all_rows, supabase
 
 
 def get_question(question_id: str) -> Optional[dict[str, Any]]:
@@ -178,12 +178,12 @@ def get_available_questions_in_scope(
 
     attempted_ids_this_round = {
         row["question_id"]
-        for row in supabase.table("attempts_log")
-        .select("question_id")
-        .eq("user_id", str(user_id))
-        .eq("round_number", round_number)
-        .execute()
-        .data
+        for row in fetch_all_rows(
+            lambda: supabase.table("attempts_log")
+            .select("question_id")
+            .eq("user_id", str(user_id))
+            .eq("round_number", round_number)
+        )
     }
     attempted_numbers = {id_to_number[qid] for qid in attempted_ids_this_round if qid in id_to_number}
 
@@ -223,13 +223,11 @@ def pick_wrong_question(user_id: UUID, mode: str) -> Optional[dict[str, Any]]:
     """從 wrong_question_state 挑一題這個模式底下、狀態仍是 wrong 的題目來複習。
     不限制在目前的 active_exam_scope，因為換範圍不代表舊範圍的錯題就不用複習了。
     """
-    wrong_rows = (
-        supabase.table("wrong_question_state")
+    wrong_rows = fetch_all_rows(
+        lambda: supabase.table("wrong_question_state")
         .select("question_id")
         .eq("user_id", str(user_id))
         .eq("status", "wrong")
-        .execute()
-        .data
     )
     if not wrong_rows:
         return None
