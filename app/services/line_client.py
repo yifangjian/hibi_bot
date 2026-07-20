@@ -53,6 +53,10 @@ def push_flex(line_user_id: str, alt_text: str, contents: dict) -> None:
     )
 
 
+def push_text(line_user_id: str, text: str) -> None:
+    _client().push_message(PushMessageRequest(to=line_user_id, messages=[TextMessage(text=text)]))
+
+
 def show_loading_animation(line_user_id: str) -> None:
     """顯示「輸入中」動畫，用在需要呼叫 AI／有明顯等待感的互動上。動畫會在我們真正送出
     回覆的當下自動消失，或是 loading_seconds 秒之後自動消失，取先發生的那個——所以秒數

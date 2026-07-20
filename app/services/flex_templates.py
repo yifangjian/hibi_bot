@@ -122,7 +122,9 @@ def build_question_card(question: dict[str, Any], action: str = "answer") -> dic
 
 
 def build_reading_input_prompt_card(question: dict[str, Any]) -> dict:
-    """諺第二階段：讀音輸入提示卡片，不放按鈕。"""
+    """諺第二階段：讀音輸入提示卡片，不放按鈕。情境選擇題（situational_choice）的例句
+    常常會把諺語做動詞變化以符合句意（例如活用形），但這裡要求的答案永遠是諺語「完整
+    原型」的讀音，不是例句裡變化後的形式——容易讓人誤解，所以明確提醒一次。"""
     return {
         "type": "bubble",
         "size": "kilo",
@@ -146,6 +148,14 @@ def build_reading_input_prompt_card(question: dict[str, Any]) -> dict:
                     "color": MUTED,
                     "wrap": True,
                     "margin": "md",
+                },
+                {
+                    "type": "text",
+                    "text": "提醒：即使上一題的例句裡諺語有做動詞變化，這裡要輸入的都是諺語「完整原型」的讀音，不是例句裡變化後的形式。",
+                    "size": "sm",
+                    "color": MUTED,
+                    "wrap": True,
+                    "margin": "sm",
                 },
             ],
         },
