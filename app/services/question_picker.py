@@ -57,10 +57,13 @@ def option_text(question: dict[str, Any], option_id: Optional[str]) -> str:
 
 
 def is_correct_option(question: dict[str, Any], opt: Optional[str]) -> bool:
-    """比對使用者選的 option id 是否為正確答案。correct_option 絕大多數情況是單一 id，
-    但少數題目有兩種都算正確的答案（例如「異国情緒」的讀音 じょうちょ／じょうしょ
-    兩種都對），這種情況資料會用「、」分隔多個都算正確的 id，例如 "a、c"——這裡兩種
-    情況都要能正確判斷（單一 id 的題目 split 後只有自己一個元素，行為不變）。"""
+    """比對使用者的作答是否為正確答案。用在兩種情境：選擇題的 option id（單語／諺第一
+    階段／言語知識），或諺第二階段讀音輸入的自由文字（這時 opt 是使用者輸入、trim 過的
+    讀音字串）。correct_option 絕大多數情況是單一值，但少數題目有兩種都算正確的答案
+    （例如「異国情緒」的讀音 じょうちょ／じょうしょ兩種都對、「悪事千里を行く」的讀音
+    ゆく／いく兩種都對），這種情況資料會用「、」分隔多個都算正確的值，例如 "a、c" 或
+    "あくじせんりをゆく、あくじせんりをいく"——這裡兩種情況都要能正確判斷（單一值的題目
+    split 後只有自己一個元素，行為不變）。"""
     correct = question.get("correct_option") or ""
     return opt in correct.split("、")
 

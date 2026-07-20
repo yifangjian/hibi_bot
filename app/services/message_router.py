@@ -4,7 +4,7 @@ from uuid import UUID
 
 from app.services import ai_tutor, daily_challenge, feedback_generator, flex_templates, line_client
 from app.services.answer_handler import finalize_attempt
-from app.services.question_picker import get_proverb_stage2, get_question, option_text
+from app.services.question_picker import get_proverb_stage2, get_question, is_correct_option, option_text
 from app.services.session_state import clear_session_state, get_session_state
 
 QUESTION_NUMBER_RE = re.compile(r"^\d+$")
@@ -34,7 +34,7 @@ def _handle_reading_input(user_id: UUID, text: str, reply_token: str, context: d
     stage1_question = get_question(stage1_question_id)
     stage2_question = get_proverb_stage2(stage1_question)
 
-    stage2_correct = bool(stage2_question) and text.strip() == (stage2_question.get("correct_option") or "").strip()
+    stage2_correct = bool(stage2_question) and is_correct_option(stage2_question, text.strip())
     is_correct = stage1_correct and stage2_correct
 
     # AI 生成回饋（chat_completion）通常比 finalize_attempt 整段 DB 寫入還慢，而且它不需要
