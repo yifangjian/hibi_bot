@@ -17,5 +17,9 @@ class Settings(BaseSettings):
 
     internal_cron_secret: str = ""
 
+    gmail_address: str = ""
+    gmail_app_password: str = ""
+    notify_email: str = ""
+
 
 settings = Settings()

@@ -31,6 +31,12 @@ DEACTIVATED_MESSAGE = (
     "謝謝您之前的使用，也很抱歉造成不便！"
 )
 
+PENDING_MESSAGE = (
+    "您好，感謝您加入！本帳號僅供參與暑修班實驗組的學生使用，"
+    "需要先確認您的資格才能開始使用。審核通常很快，請耐心稍候；"
+    "若有疑問可以聯繫：412101338@o365.tku.edu.tw"
+)
+
 
 def _show_loading_animation(line_user_id: str) -> None:
     try:
@@ -69,9 +75,12 @@ def _handle_postback(event: dict) -> None:
         if action in SLOW_POSTBACK_ACTIONS:
             _show_loading_animation(line_user_id)
 
-        user_id, is_active = get_or_create_user(line_user_id)
-        if not is_active:
+        user_id, status = get_or_create_user(line_user_id)
+        if status == "inactive":
             line_client.reply_text(reply_token, DEACTIVATED_MESSAGE)
+            return
+        if status == "pending":
+            line_client.reply_text(reply_token, PENDING_MESSAGE)
             return
         log_menu_interaction(user_id=user_id, action=action, mode=mode)
         menu_actions.dispatch(action, params, user_id, reply_token)
@@ -89,9 +98,12 @@ def _handle_message(event: dict) -> None:
         line_user_id = event["source"]["userId"]
         text = event["message"]["text"]
 
-        user_id, is_active = get_or_create_user(line_user_id)
-        if not is_active:
+        user_id, status = get_or_create_user(line_user_id)
+        if status == "inactive":
             line_client.reply_text(reply_token, DEACTIVATED_MESSAGE)
+            return
+        if status == "pending":
+            line_client.reply_text(reply_token, PENDING_MESSAGE)
             return
 
         state = get_session_state(user_id)
