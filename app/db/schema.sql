@@ -3,7 +3,11 @@ CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     line_user_id TEXT UNIQUE NOT NULL,
     created_at TIMESTAMPTZ DEFAULT now(),
-    is_active BOOLEAN NOT NULL DEFAULT true  -- false 代表確認不是研究參與者、已停用帳號；不刪除任何歷史資料，只擋後續互動
+    is_active BOOLEAN NOT NULL DEFAULT true,  -- 已棄用欄位，保留但沒有程式碼再讀寫，資格判斷邏輯改用下面的 status
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'inactive'))
+    -- pending：新使用者第一次互動，等研究者確認資格（會寄 email 通知）
+    -- active：確認是研究參與者，正常使用
+    -- inactive：確認不是研究參與者，已停用；不論哪個狀態都不會刪除任何歷史資料，只擋後續互動
 );
 
 -- 題目（彈性設計，支援三種模式與諺的多階段結構）

@@ -50,7 +50,7 @@ hibi_bot 希望透過學生每天都在使用的 LINE，把練習變成一件低
 - **重置**：需該範圍當下輪次「全部作答完」且「沒有任何待複習錯題」才允許，只把 `scope_progress` 的追蹤狀態打回起點（`current_round` +1），不觸碰 `attempts_log`／`wrong_question_state` 等歷史紀錄，過去每一輪的資料完整保留可供研究分析
 - **進度查詢**：一張卡片同時顯示三模式各自的範圍、輪次、本輪作答進度、待複習錯題數，以及每日挑戰「累計完成次數」（刻意不做「連續天數」，避免使用者因為某天沒使用而產生「破功」的挫折感，呼應本研究降低能力感焦慮的目標）
 - **輸入中動畫**：呼叫 AI 生成解析／回覆前（`app/services/line_client.py` 的 `show_loading_animation()`），先呼叫 LINE 的 Loading Animation API 讓使用者看到「輸入中」提示，只套用在真的會等比較久的互動（`answer`／`review_answer`／`daily_challenge_answer` 這三個 postback action，以及文字訊息裡 `awaiting_reading_input`／`awaiting_ai_tutor_question_number`／`in_ai_tutor_conversation` 這三種等待狀態），不套用在「下一題」「查進度」這類幾乎瞬間回覆的動作（動畫一閃即逝、沒有意義）。動畫會在我們真正送出回覆的當下自動消失，`loading_seconds` 故意設最大值 60 秒當保險，不會有「動畫消失了但答案還沒出現」的狀況；呼叫本身包在 try/except 裡，這只是體驗加分，失敗不該影響真正的回覆流程。
-- **使用者停用機制**：`users` 表的 `is_active`（預設 `true`）用來標記「確認不是研究參與者」的帳號（例如事後跟問卷填答名單核對後發現不在名單內）。停用只是把這個欄位改成 `false`，**不會刪除該使用者任何歷史資料**（`attempts_log`／`wrong_question_state`／`feedback_logs` 等全部保留，供之後資料清洗判斷排除範圍用）。`app/routers/webhook.py` 在 `get_or_create_user()` 之後立刻檢查這個欄位，被停用的使用者不管傳文字或按選單，一律只收到固定的停用說明文字，不會進入任何練習/選單邏輯，也不會再新增 `menu_interaction_log`；`daily_challenge.run_daily_push()` 的查詢也排除 `is_active=false`，停用的使用者不會再收到每日挑戰推播。之後如果還有類似「確認非參與者」的情況，只要把對應使用者的 `is_active` 設成 `false` 即可，不需要再改程式碼。
+- **使用者資格審核機制**：`users` 表的 `status`（`pending`／`active`／`inactive`）決定一個帳號能不能正常使用。新使用者第一次互動（`app/services/users.py` 的 `get_or_create_user()`）預設建立為 `pending`，同時寄一封 email 通知研究者（`app/services/email_client.py`，Gmail SMTP + 應用程式密碼），內容包含 LINE 顯示名稱與 `line_user_id`，方便對照問卷填答名單決定資格；`pending` 期間使用者不管傳文字或按選單，一律只收到固定的「審核中」說明文字，不會進入任何練習/選單邏輯，也不會新增 `menu_interaction_log`，且同一位使用者重複互動不會重複寄信（只在真正建立新使用者的當下寄一次）。確認資格後用 `python scripts/approve_user.py --line-user-id <id>` 開通，會把狀態改成 `active` 並主動推播歡迎訊息；確認不符資格則直接把 `status` 改成 `inactive`，會收到停用說明文字。**不論哪個狀態都不會刪除使用者任何歷史資料**（`attempts_log`／`wrong_question_state`／`feedback_logs` 等全部保留，供之後資料清洗判斷排除範圍用）；`daily_challenge.run_daily_push()` 只推播給 `status='active'` 的使用者。（`is_active` 欄位是這個機制舊版設計留下的，已棄用，沒有任何程式碼再讀寫，之後可以手動清掉。）
 
 ## 5. 研究背景
 
@@ -69,7 +69,8 @@ pip install -r requirements.txt
 # 設定環境變數
 cp .env.example .env
 # 編輯 .env，填入 LINE_CHANNEL_SECRET、LINE_CHANNEL_ACCESS_TOKEN、
-# SUPABASE_URL、SUPABASE_KEY、OPENAI_API_KEY
+# SUPABASE_URL、SUPABASE_KEY、OPENAI_API_KEY、
+# GMAIL_ADDRESS、GMAIL_APP_PASSWORD、NOTIFY_EMAIL（新使用者待審核通知信用）
 # OPENAI_MODEL 預設 gpt-5.4-mini，AI_TUTOR_DAILY_TURN_LIMIT 預設 10（AI 助教每日追問輪次上限），
 # 兩者皆可依實際情況調整，不需修改程式碼
 
@@ -252,7 +253,7 @@ bucket 名稱固定為 `completion-cards`（寫死在 `app/services/completion_c
 
 **重要：`app/db/client.py`／`app/services/ai_client.py` 的 client 必須是 thread-local，不能是單一共用實例**。這個環境裝了 `h2`（HTTP/2），Supabase／OpenAI 的底層 httpx client 預設會用 HTTP/2，而 HTTP/2 的連線多工在多個「真正的 OS 執行緒」間共用同一個連線並不安全（只有 async 的單執行緒協作式併發才安全）。改成 `run_in_threadpool` 之後，不同使用者的請求會被丟到不同執行緒平行處理，這時如果所有執行緒共用同一個 client，會穩定重現 `httpx.ReadError: [Errno 35] Resource temporarily unavailable`（已用平行請求實測重現＋修復驗證過）。兩個 client 檔案都用 `threading.local()` 讓每個執行緒各自持有、重複利用自己的 client 實例，之後如果要調整這兩個 client 的建立方式，務必維持這個 thread-local 的設計，不要圖方便改回模組層級的單一共用實例。
 
-**部署到 Railway**：專案根目錄的 `Procfile` 會被 Railway 自動偵測作為啟動指令，不需要額外設定 start command。環境變數（`LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`、`SUPABASE_URL`、`SUPABASE_KEY`、`OPENAI_API_KEY`、`INTERNAL_CRON_SECRET` 等，同本機開發設置章節）需要在 Railway 專案的 Variables 裡設定一份。
+**部署到 Railway**：專案根目錄的 `Procfile` 會被 Railway 自動偵測作為啟動指令，不需要額外設定 start command。環境變數（`LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`、`SUPABASE_URL`、`SUPABASE_KEY`、`OPENAI_API_KEY`、`INTERNAL_CRON_SECRET`、`GMAIL_ADDRESS`、`GMAIL_APP_PASSWORD`、`NOTIFY_EMAIL` 等，同本機開發設置章節）需要在 Railway 專案的 Variables 裡設定一份。
 
 **Railway 部署地區要跟 Supabase 專案同一個地理區域，不要用預設值**：Railway 預設把服務部署在 `sfo`（舊金山），但這個專案的 Supabase 專案在 `ap-south-1`（孟買）——兩者相距半個地球，會讓每次互動裡的每一次資料庫查詢（單次答題大概 7 次）都多付出一段跨洲延遲，實測後把 Railway 服務改用 `railway service scale southeast-asia=1 sfo=0`（新加坡，Railway 現有選項裡離孟買最近的）解決。之後如果 Supabase 專案換了地區，或是要接新的 Railway 服務，記得先查 `supabase projects list` 確認 Supabase 實際地區，再對應選擇 Railway 的部署地區，不要沿用預設值。OpenAI API 主要在美國，跟 Supabase 兩邊無法同時最佳化時，優先靠近 Supabase——因為單次互動的資料庫來回次數遠多於 AI 呼叫次數。
 
