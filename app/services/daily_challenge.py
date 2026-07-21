@@ -256,9 +256,10 @@ def handle_challenge_answer(user_id: UUID, params: dict, reply_token: str) -> No
 def run_daily_push() -> dict[str, Any]:
     """Cron 進入點：為每位使用者產生今日挑戰並推播「開始挑戰」卡片。每位使用者獨立
     try/except——單一使用者的資料異常或推播失敗（例如已封鎖官方帳號）不該讓迴圈中斷、
-    連累當天排在後面的其他使用者完全收不到推播。
+    連累當天排在後面的其他使用者完全收不到推播。已停用的使用者（is_active=false，
+    例如確認不是研究參與者）排除在外，不需要浪費推播額度、也不該再收到任何通知。
     """
-    users = supabase.table("users").select("id, line_user_id").execute().data
+    users = supabase.table("users").select("id, line_user_id").eq("is_active", True).execute().data
     today = date.today()
 
     pushed = 0

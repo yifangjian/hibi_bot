@@ -2,7 +2,8 @@
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     line_user_id TEXT UNIQUE NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT now()
+    created_at TIMESTAMPTZ DEFAULT now(),
+    is_active BOOLEAN NOT NULL DEFAULT true  -- false 代表確認不是研究參與者、已停用帳號；不刪除任何歷史資料，只擋後續互動
 );
 
 -- 題目（彈性設計，支援三種模式與諺的多階段結構）
