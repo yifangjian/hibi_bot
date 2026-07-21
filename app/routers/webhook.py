@@ -23,6 +23,14 @@ router = APIRouter(prefix="/webhook", tags=["webhook"])
 SLOW_POSTBACK_ACTIONS = {"answer", "review_answer", "daily_challenge_answer"}
 SLOW_TEXT_PENDING_ACTIONS = {"awaiting_reading_input", "awaiting_ai_tutor_question_number", "in_ai_tutor_conversation"}
 
+DEACTIVATED_MESSAGE = (
+    "您好，不好意思打擾了！\n\n"
+    "因為本聊天機器人是專為參與暑修班實驗組的同學設計，經過與問卷填答名單核對後，"
+    "我們發現您的資料目前不在參與名單內，所以這個帳號暫時無法繼續使用本服務。\n\n"
+    "如果您認為這是誤判，或有任何疑問，都歡迎聯繫我：412101338@o365.tku.edu.tw\n\n"
+    "謝謝您之前的使用，也很抱歉造成不便！"
+)
+
 
 def _show_loading_animation(line_user_id: str) -> None:
     try:
@@ -61,7 +69,10 @@ def _handle_postback(event: dict) -> None:
         if action in SLOW_POSTBACK_ACTIONS:
             _show_loading_animation(line_user_id)
 
-        user_id = get_or_create_user(line_user_id)
+        user_id, is_active = get_or_create_user(line_user_id)
+        if not is_active:
+            line_client.reply_text(reply_token, DEACTIVATED_MESSAGE)
+            return
         log_menu_interaction(user_id=user_id, action=action, mode=mode)
         menu_actions.dispatch(action, params, user_id, reply_token)
     except Exception:
@@ -78,7 +89,10 @@ def _handle_message(event: dict) -> None:
         line_user_id = event["source"]["userId"]
         text = event["message"]["text"]
 
-        user_id = get_or_create_user(line_user_id)
+        user_id, is_active = get_or_create_user(line_user_id)
+        if not is_active:
+            line_client.reply_text(reply_token, DEACTIVATED_MESSAGE)
+            return
 
         state = get_session_state(user_id)
         pending_action = state.get("pending_action") if state else None
