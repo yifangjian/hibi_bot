@@ -225,7 +225,7 @@ bucket 名稱固定為 `completion-cards`（寫死在 `app/services/completion_c
    ```
    0 4 * * *
    ```
-4. 這個服務自己的 Variables 裡設定 `INTERNAL_CRON_SECRET`（值要跟 `hibi-bot` 主服務的一致）、`DAILY_PUSH_ENABLED`（見下方「暫停/恢復每日推播」）
+4. 這個服務自己的 Variables 裡設定 `INTERNAL_CRON_SECRET`（值要跟 `hibi-bot` 主服務的一致）
 5. Settings → Deploy → Custom Start Command，**必須用 `sh -c` 包住整個指令**：
    ```bash
    sh -c 'curl -X POST https://<your-railway-app>.up.railway.app/internal/push-daily -H "X-Cron-Secret: $INTERNAL_CRON_SECRET"'
@@ -239,7 +239,7 @@ bucket 名稱固定為 `completion-cards`（寫死在 `app/services/completion_c
    ```
    回應會是 `{"users": N, "pushed": M}`，`pushed` 是實際成功推播的人數（若某位使用者三個模式當下輪次都沒有剩餘題目，會被排除在外，不視為錯誤）。
 
-**暫停/恢復每日推播**：不需要動 Cron Schedule 或 Custom Start Command（這兩個踩過坑、風險比較高），直接去「每日挑戰推播」這個 cron 服務的 Variables 頁面把 `DAILY_PUSH_ENABLED` 改成 `false` 即可暫停，`run_daily_push()` 會直接跳過、完全不查詢使用者也不推播；改回 `true` 就恢復。改完不用重新部署，下一次排程觸發時就會直接讀到新值。
+**暫停/恢復每日推播**：不需要動 Cron Schedule 或 Custom Start Command（這兩個踩過坑、風險比較高）。`DAILY_PUSH_ENABLED` 這個開關的檢查邏輯（`run_daily_push()`）實際跑在 **`hibi-bot` 主服務**裡，不是這個 cron 服務——cron 服務只負責定時打一個 curl 請求觸發它。所以要去 **`hibi-bot` 主服務**的 Variables 頁面把 `DAILY_PUSH_ENABLED` 改成 `false` 才會生效，改成 `false` 之後即使 cron 照常觸發，`hibi-bot` 收到請求也會直接跳過、完全不查詢使用者也不推播；改回 `true` 就恢復。改完不用重新部署，下一次排程觸發時就會直接讀到新值。
 
 跑完後可到 Supabase 後台檢查：
 - `daily_challenge`：應新增一筆，`questions` 是決定好的題目順序（最多 5 題，橫跨三模式且不重複），`current_index`／`results`／`completed` 隨作答進度更新
