@@ -217,7 +217,7 @@ bucket 名稱固定為 `completion-cards`（寫死在 `app/services/completion_c
 
 **注意：這個字型檔不能用 Git LFS 存放。** 曾經一度改用 LFS 管理這個 5.8MB 的檔案，結果正式環境完成每日挑戰時穩定出現 `OSError: unknown file format`（Pillow 載入字型失敗）——原因是 **Railway 的建置流程不會解析 Git LFS**，抓下來的只是一段 132 bytes 的指標文字，不是真正的字型二進位檔，本機測試因為本機已經 `git lfs pull` 過所以完全看不出問題。5.8MB 遠低於 GitHub 一般檔案 100MB 的上限，所以直接以一般二進位檔案 commit 進 repo（不透過 LFS）即可，不要為了「repo 大小整潔」又把它改回 LFS。
 
-**Railway Cron 設置（每日推播）**：這是一個**獨立的服務**（不是 `hibi-bot` 主服務本身的設定），實際部署時踩過兩個坑，特別列出來：
+**Railway Cron 設置（每日推播）**：這是一個**獨立的服務**（不是 `hibi-bot` 主服務本身的設定），實際部署時踩過幾個坑，特別列出來：
 
 1. 在 Railway 專案裡新增一個空的服務（Empty Service）專門當這個 cron 用（例如命名「每日挑戰推播」）
 2. **這個服務必須指定一個 Docker image 來源**（Settings → Source），例如 `curlimages/curl:latest`——空服務如果沒有指定來源，Railway 沒有東西可以拿來執行 Custom Start Command，`nextCronRunAt` 會一直顯示下次排程時間，但實際上永遠不會真的部署、永遠不會觸發，且不會有任何錯誤提示，容易誤以為設定成功
@@ -225,18 +225,21 @@ bucket 名稱固定為 `completion-cards`（寫死在 `app/services/completion_c
    ```
    0 4 * * *
    ```
-4. 這個服務自己的 Variables 裡設定 `INTERNAL_CRON_SECRET`（值要跟 `hibi-bot` 主服務的一致）
-5. Settings → Deploy → Custom Start Command，填入對內部端點發送 POST 請求的指令：
+4. 這個服務自己的 Variables 裡設定 `INTERNAL_CRON_SECRET`（值要跟 `hibi-bot` 主服務的一致）、`DAILY_PUSH_ENABLED`（見下方「暫停/恢復每日推播」）
+5. Settings → Deploy → Custom Start Command，**必須用 `sh -c` 包住整個指令**：
    ```bash
-   curl -X POST https://<your-railway-app>.up.railway.app/internal/push-daily -H "X-Cron-Secret: $INTERNAL_CRON_SECRET"
+   sh -c 'curl -X POST https://<your-railway-app>.up.railway.app/internal/push-daily -H "X-Cron-Secret: $INTERNAL_CRON_SECRET"'
    ```
-   **注意：`$INTERNAL_CRON_SECRET` 是變數參照語法，要直接照打，不要把它換成任何提示文字或說明文字**——曾經發生過複製指令範例時，把整段「請填入你的密鑰」這種提示文字也一起貼進了實際的 Custom Start Command 欄位，導致每次觸發都用一個不存在的字面字串當密鑰、驗證永遠失敗，而且從 Railway 的角度看部署本身是成功的（服務有正常啟動、執行 curl），只有 log 裡才看得出實際回應是 401，很容易忽略。
+   **`curlimages/curl` 這個 image 沒有 shell 環境，如果不用 `sh -c` 包住，`$INTERNAL_CRON_SECRET` 不會被展開、會被字面上當成字串 `$INTERNAL_CRON_SECRET` 送出去**——這個 bug 真的發生過：cron 自動觸發時一路顯示部署成功，但實際請求帶的密鑰是這串沒展開的字面文字，驗證直接 401，从 Railway 角度看整個流程「成功執行了 curl」，只有進到 log 才看得出實際回應是 401，很容易忽略。
+   同時**`$INTERNAL_CRON_SECRET` 是變數參照語法，要直接照打，不要把它換成任何提示文字或說明文字**——也曾經發生過複製指令範例時，把整段「請填入你的密鑰」這種提示文字一起貼進了實際欄位，導致每次觸發都用一個不存在的字面字串當密鑰。
 6. 本機測試不用等到中午，可以直接手動觸發（伺服器跑在本機、`.env` 已設定 `INTERNAL_CRON_SECRET` 的前提下）：
    ```bash
    curl -X POST http://localhost:8000/internal/push-daily \
      -H "X-Cron-Secret: <你在 .env 設定的值>"
    ```
    回應會是 `{"users": N, "pushed": M}`，`pushed` 是實際成功推播的人數（若某位使用者三個模式當下輪次都沒有剩餘題目，會被排除在外，不視為錯誤）。
+
+**暫停/恢復每日推播**：不需要動 Cron Schedule 或 Custom Start Command（這兩個踩過坑、風險比較高），直接去「每日挑戰推播」這個 cron 服務的 Variables 頁面把 `DAILY_PUSH_ENABLED` 改成 `false` 即可暫停，`run_daily_push()` 會直接跳過、完全不查詢使用者也不推播；改回 `true` 就恢復。改完不用重新部署，下一次排程觸發時就會直接讀到新值。
 
 跑完後可到 Supabase 後台檢查：
 - `daily_challenge`：應新增一筆，`questions` 是決定好的題目順序（最多 5 題，橫跨三模式且不重複），`current_index`／`results`／`completed` 隨作答進度更新

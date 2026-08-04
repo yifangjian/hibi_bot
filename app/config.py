@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     ai_tutor_daily_turn_limit: int = 10
 
     internal_cron_secret: str = ""
+    daily_push_enabled: bool = True
 
     gmail_address: str = ""
     gmail_app_password: str = ""

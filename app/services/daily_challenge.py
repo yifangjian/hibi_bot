@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 from typing import Any
 from uuid import UUID
 
+from app.config import settings
 from app.db.client import supabase
 from app.services import completion_card_generator, feedback_generator, flex_templates, line_client
 from app.services.answer_handler import finalize_attempt
@@ -259,7 +260,15 @@ def run_daily_push() -> dict[str, Any]:
     連累當天排在後面的其他使用者完全收不到推播。只推播給 status='active' 的使用者——
     'pending'（還沒審核完）跟 'inactive'（確認不是研究參與者）都排除在外，不需要浪費
     推播額度、也不該再收到任何通知。
+
+    DAILY_PUSH_ENABLED（環境變數，預設 true）讓研究者可以隨時在 Railway 後台的
+    Variables 頁面暫停/恢復整個推播功能，不用動到容易踩坑的 Cron Schedule／Custom
+    Start Command（見 README「Railway Cron 設置」那幾個已知坑）。
     """
+    if not settings.daily_push_enabled:
+        logger.info("DAILY_PUSH_ENABLED=false，今天的每日挑戰推播已停用，跳過")
+        return {"users": 0, "pushed": 0, "skipped": 0, "failed": 0, "disabled": True}
+
     users = supabase.table("users").select("id, line_user_id").eq("status", "active").execute().data
     today = date.today()
 
