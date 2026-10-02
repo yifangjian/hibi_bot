@@ -34,6 +34,10 @@ def handle_text_message(user_id: UUID, text: str, reply_token: str) -> None:
 
 
 def _handle_reading_input(user_id: UUID, text: str, reply_token: str, context: dict) -> None:
+    """【已停用】諺語第二階段（讀音輸入）。115 學年起研究者決定拿掉這一階段（前測時是暑修班
+    老師的要求，不是本研究要測的內容，且約 24% 的諺語作答是「意思答對、只有讀音判錯」，
+    多為打字或活用形造成的雜訊），目前沒有任何流程會再設定 awaiting_reading_input。
+    保留這段是為了日後若要恢復讀音練習，只需讓 answer handler 重新設定這個等待狀態。"""
     stage1_question_id = context["question_id"]
     mode = context["mode"]
     stage1_option = context["stage1_option"]

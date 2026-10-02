@@ -11,7 +11,7 @@ from app.config import settings
 from app.services import access_codes, email_client, line_client, menu_actions
 from app.services.menu_interaction import log_menu_interaction
 from app.services.message_router import handle_text_message
-from app.services.session_state import get_session_state
+from app.services.session_state import clear_session_state, get_session_state
 from app.services.users import get_or_create_user
 
 logger = logging.getLogger("hibi_bot.webhook")
@@ -146,6 +146,9 @@ def _handle_message(event: dict) -> None:
             if code_row is None:
                 line_client.reply_text(reply_token, ACCESS_CODE_INVALID)
                 return
+            # 前測時答到一半離開的同學，可能還留著舊的等待狀態（例如等待輸入讀音），開通當下
+            # 清掉，不然開通後第一則文字會被當成舊題目的答案
+            clear_session_state(user_id)
             line_client.reply_text(reply_token, ACCESS_CODE_WELCOME)
             _notify_redeemed(line_user_id, code_row)
             return

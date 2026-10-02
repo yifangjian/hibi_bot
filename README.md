@@ -48,7 +48,7 @@ hibi_bot 希望透過學生每天都在使用的 LINE，把練習變成一件低
 
 - **三種練習模式**
   - 単語：單階段。115 學年起為情境句挖空（`___`），選出空格中詞語的讀音（約 540 題）或寫法（約 100 題，選項為漢字），每題附解析；前測（暑修班）的題庫則是單一詞彙選讀音、沒有解析。見下方「単語題庫匯入」。`correct_option` 絕大多數是單一 option id，但少數詞彙有兩種都算正確的讀音（例如「異国情緒」的 じょうちょ／じょうしょ），這種情況資料用「、」分隔多個 id（例如 `"a、c"`），判分與回饋文字（`app/services/question_picker.py` 的 `is_correct_option()`、`app/services/feedback_generator.py` 的 `finish_feedback_text()`）都要用這個分隔慣例判斷，不能假設永遠是單一 id——這個假設曾經被違反過一次，造成某道題目不管選哪個選項都被判定答錯，且回饋文字直接把原始 id 字串（`"a、c"`）印出來而非讀音，詳見下一段
-  - 諺：兩階段設計（語意／情境選擇題 → 讀音輸入題，兩階段合併判定為一筆作答紀錄）。情境選擇題（situational_choice）的例句常會把諺語做動詞變化以符合句意，但第二階段永遠是要求諺語「完整原型」的讀音，容易讓人誤解成要打例句裡變化後的形式，所以讀音輸入提示卡片（`build_reading_input_prompt_card`）明確提醒這一點
+  - 諺：**115 學年起為單階段**：每次隨機出「意思選擇」（semantic_choice）或「情境選擇」（situational_choice）其中一種，答完直接看 AI 解說。`attempts_log.answer_detail` 記錄 `stage1_variant`／`stage1_option`／`stage1_correct`，可分析兩種題型的答對率差異。**前測（暑修班）時是兩階段**（選擇題之後還要在聊天室輸入讀音，兩階段都對才算對，`answer_detail` 另有 `stage2_reading_input`／`stage2_correct`）；那是當時暑修班老師的要求，不是本研究要測的內容，且前測約 24% 的諺語作答是「意思答對、只有讀音判錯」（多為打字錯誤或打成活用形），研究者因此決定拿掉。跨期比較時用前測的 `stage1_correct` 對齊即可。讀音輸入的程式（`message_router._handle_reading_input`）與 `reading_input` 題目資料都保留，目前沒有流程會觸發，之後要恢復只需讓 answer handler 重新設定 `awaiting_reading_input` 等待狀態。
   - 言語知識：單階段，情境例句挖空＋選項，與諺的情境式選擇題共用同一套 Flex 模板
 - **圖文選單設計**：四層選單（主選單／模式選單／開始練習子選單／錯題模式子選單），透過 LINE 原生 `richmenuswitch` 切換並同步回傳 postback 供後端記錄行為
 - **解釋型回饋機制**：作答後由 OpenAI API 根據該題的 `explanation_rule` 即時生成個別化解釋（system prompt 明確限制 AI 只能依據 `explanation_rule` 說明，不得引入題庫外的文法知識；也明確要求說明句子本身要翻譯成繁體中文，不能把解釋依據裡的日文原句直接照抄進回覆），生成結果存入 `feedback_logs`。**単語模式例外**：単語題庫目前是純讀音測驗、沒有解析內容可以當依據，答對答錯本身也沒有需要 AI 說明的細膩語感，所以答題後直接顯示正確讀音，不呼叫 OpenAI、不寫入 `feedback_logs`（見 `app/services/menu_actions.py` 的 `_build_feedback_text`）
@@ -104,7 +104,7 @@ UPDATE active_exam_scope SET exam_scope = '期末考', updated_at = now() WHERE 
 
 - `semantic_choice`：意味選択（「這個諺語的意思是？」）
 - `situational_choice`：文脈穴埋め（「符合這個情境的諺語是？」）
-- `reading_input`：読み方（讀音輸入，第二階段固定使用）
+- `reading_input`：読み方（讀音輸入；前測時是固定的第二階段，115 學年起已停用、資料保留）
 
 使用者每次練習到某句諺語時，系統會在 `semantic_choice`／`situational_choice` 兩者之間**隨機擇一**當作第一階段題目（見 [`app/services/question_picker.py`](app/services/question_picker.py) 的 `get_scope_candidates`／`_pick_representative`），第二階段一律接同一個 `question_number` 底下的 `reading_input`。判斷「這句諺語本輪是否已作答過」時是以 `question_number` 為準，不是以個別變體的資料列 id 為準，所以同一句諺語不會因為兩種變體對系統來說是「不同題目」而被重複選中。這次隨機選到的是哪個變體會記錄在 `attempts_log.answer_detail.stage1_variant`，供後續分析兩種出題形式的正確率是否有差異。
 

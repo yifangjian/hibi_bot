@@ -89,3 +89,19 @@ def finalize_attempt(
     update_scope_progress(user_id, question["mode"], question["exam_scope"], round_number)
 
     return inserted.data[0]
+
+
+def proverb_answer_detail(question: dict[str, Any], selected_option: Optional[str], is_correct: bool) -> Optional[dict[str, Any]]:
+    """諺語作答的明細：記錄這次隨機抽到的是意思題（semantic_choice）還是情境題
+    （situational_choice），供分析兩種題型的答對率差異。其他模式回傳 None。
+
+    115 學年起諺語只有這一階段（研究者決定拿掉讀音輸入，見 README「諺語單階段」）。欄位名稱
+    沿用前測兩階段時期的 stage1_*，跟前測資料比較時直接用 stage1_correct 對齊；前測資料另外
+    有 stage2_reading_input／stage2_correct，這裡沒有。"""
+    if question.get("mode") != "proverb":
+        return None
+    return {
+        "stage1_variant": question.get("stage"),
+        "stage1_option": selected_option,
+        "stage1_correct": is_correct,
+    }

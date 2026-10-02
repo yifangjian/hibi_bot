@@ -3,7 +3,7 @@ from typing import Optional
 from uuid import UUID
 
 from app.services import daily_challenge, feedback_generator, flex_templates, line_client, progress_view, reset_handler
-from app.services.answer_handler import finalize_attempt
+from app.services.answer_handler import finalize_attempt, proverb_answer_detail
 from app.services.question_picker import get_question, is_correct_option, pick_next_question, pick_wrong_question
 from app.services.session_state import clear_session_state, set_session_state
 
@@ -79,30 +79,15 @@ def handle_review_answer(user_id: UUID, params: dict, reply_token: str) -> None:
     mode = question["mode"]
     is_correct = is_correct_option(question, opt)
 
-    if mode == "proverb" and question.get("stage") in ("semantic_choice", "situational_choice"):
-        # 諺第一階段：先記錄選擇，轉入讀音輸入階段，尚未寫入 attempts_log
-        set_session_state(
-            user_id,
-            "awaiting_reading_input",
-            {
-                "question_id": question["id"],
-                "mode": "proverb",
-                "stage1_option": opt,
-                "stage1_correct": is_correct,
-                "attempt_type": "review",
-            },
-        )
-        line_client.reply_flex(
-            reply_token,
-            alt_text="請輸入讀音",
-            contents=flex_templates.build_reading_input_prompt_card(question),
-        )
-        return
-
-    # 単語 / 言語知識：單階段，直接判定並寫入（attempt_type=review，答對會把這題從 wrong 標記為 resolved）
+    # 三種模式都是單階段：直接判定並寫入（attempt_type=review，答對會把這題從 wrong 標記為 resolved）
     feedback_thread, feedback_result = feedback_generator.start_feedback_generation(question, opt, is_correct)
     attempt = finalize_attempt(
-        user_id=user_id, question=question, is_correct=is_correct, selected_option=opt, attempt_type="review"
+        user_id=user_id,
+        question=question,
+        is_correct=is_correct,
+        selected_option=opt,
+        answer_detail=proverb_answer_detail(question, opt, is_correct),
+        attempt_type="review",
     )
     feedback_text, example_sentence = feedback_generator.finish_feedback_text(question, attempt["id"], feedback_thread, feedback_result)
     line_client.reply_flex(
@@ -124,28 +109,15 @@ def handle_answer(user_id: UUID, params: dict, reply_token: str) -> None:
 
     is_correct = is_correct_option(question, opt)
 
-    if question["mode"] == "proverb" and question.get("stage") in ("semantic_choice", "situational_choice"):
-        # 諺第一階段：先記錄選擇，轉入讀音輸入階段，尚未寫入 attempts_log
-        set_session_state(
-            user_id,
-            "awaiting_reading_input",
-            {
-                "question_id": question["id"],
-                "mode": "proverb",
-                "stage1_option": opt,
-                "stage1_correct": is_correct,
-            },
-        )
-        line_client.reply_flex(
-            reply_token,
-            alt_text="請輸入讀音",
-            contents=flex_templates.build_reading_input_prompt_card(question),
-        )
-        return
-
-    # 単語 / 言語知識：單階段，直接判定並寫入
+    # 三種模式都是單階段：直接判定並寫入
     feedback_thread, feedback_result = feedback_generator.start_feedback_generation(question, opt, is_correct)
-    attempt = finalize_attempt(user_id=user_id, question=question, is_correct=is_correct, selected_option=opt)
+    attempt = finalize_attempt(
+        user_id=user_id,
+        question=question,
+        is_correct=is_correct,
+        selected_option=opt,
+        answer_detail=proverb_answer_detail(question, opt, is_correct),
+    )
     feedback_text, example_sentence = feedback_generator.finish_feedback_text(question, attempt["id"], feedback_thread, feedback_result)
     line_client.reply_flex(
         reply_token,

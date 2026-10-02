@@ -7,14 +7,13 @@ from uuid import UUID
 from app.config import settings
 from app.db.client import supabase
 from app.services import completion_card_generator, feedback_generator, flex_templates, line_client
-from app.services.answer_handler import finalize_attempt
+from app.services.answer_handler import finalize_attempt, proverb_answer_detail
 from app.services.question_picker import (
     get_current_scope_and_round,
     get_available_questions_in_scope,
     get_question,
     is_correct_option,
 )
-from app.services.session_state import set_session_state
 
 logger = logging.getLogger("hibi_bot.daily_challenge")
 
@@ -203,27 +202,7 @@ def handle_challenge_answer(user_id: UUID, params: dict, reply_token: str) -> No
 
     is_correct = is_correct_option(question, opt)
 
-    if question["mode"] == "proverb" and question.get("stage") in ("semantic_choice", "situational_choice"):
-        # 諺第一階段：先記錄選擇，轉入讀音輸入階段，尚未寫入 attempts_log／daily_challenge
-        set_session_state(
-            user_id,
-            "awaiting_reading_input",
-            {
-                "question_id": question["id"],
-                "mode": "proverb",
-                "stage1_option": opt,
-                "stage1_correct": is_correct,
-                "challenge_id": challenge_id,
-            },
-        )
-        line_client.reply_flex(
-            reply_token,
-            alt_text="請輸入讀音",
-            contents=flex_templates.build_reading_input_prompt_card(question),
-        )
-        return
-
-    # 単語 / 言語知識：單階段，直接判定、寫入，並顯示解析回饋卡片（AI 生成回饋跟
+    # 三種模式都是單階段：直接判定、寫入，並顯示解析回饋卡片（AI 生成回饋跟
     # finalize_attempt 的 DB 寫入平行執行，減少使用者等待時間，做法同一般練習模式）。
     # 挑戰進度（current_index／completed）在這裡就先推進寫入，不等使用者按下一題，
     # 避免使用者看完回饋卡片後中途離開，這一題的挑戰進度沒有被記錄下來。
@@ -233,6 +212,7 @@ def handle_challenge_answer(user_id: UUID, params: dict, reply_token: str) -> No
         question=question,
         is_correct=is_correct,
         selected_option=opt,
+        answer_detail=proverb_answer_detail(question, opt, is_correct),
         daily_challenge_id=challenge_id,
     )
     feedback_text, example_sentence = feedback_generator.finish_feedback_text(
