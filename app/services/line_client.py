@@ -35,6 +35,20 @@ def reply_text(reply_token: str, text: str) -> None:
     )
 
 
+def reply_text_and_image(reply_token: str, text: str, image_url: str) -> None:
+    """一次回覆裡先傳文字、再傳一張圖（reply token 只能用一次，所以要放在同一個請求裡）。
+    image_url 同時當原圖與預覽圖，LINE 規定預覽圖不能超過 1MB。"""
+    _client().reply_message(
+        ReplyMessageRequest(
+            reply_token=reply_token,
+            messages=[
+                TextMessage(text=text),
+                ImageMessage(original_content_url=image_url, preview_image_url=image_url),
+            ],
+        )
+    )
+
+
 def reply_image(reply_token: str, image_url: str) -> None:
     _client().reply_message(
         ReplyMessageRequest(

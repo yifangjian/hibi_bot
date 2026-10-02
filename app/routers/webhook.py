@@ -48,7 +48,7 @@ ACCESS_CODE_INVALID = (
     f"如果確定沒有打錯，請聯繫：{CONTACT}"
 )
 
-ACCESS_CODE_WELCOME = "開通成功！現在可以開始使用囉，點選下方選單開始練習吧 🎉"
+ACCESS_CODE_WELCOME = "開通成功！現在可以開始使用囉，點選下方選單開始練習吧 🎉\n\n下面是操作說明，之後忘記怎麼用可以回來看。"
 
 
 def _notify_redeemed(line_user_id: str, code_row: dict) -> None:
@@ -149,7 +149,12 @@ def _handle_message(event: dict) -> None:
             # 前測時答到一半離開的同學，可能還留著舊的等待狀態（例如等待輸入讀音），開通當下
             # 清掉，不然開通後第一則文字會被當成舊題目的答案
             clear_session_state(user_id)
-            line_client.reply_text(reply_token, ACCESS_CODE_WELCOME)
+            # 加好友的歡迎訊息只在加入當下出現一次，前測就加過好友的同學看不到新版說明，
+            # 所以開通成功時一律附上最新的操作說明圖
+            if settings.guide_image_url:
+                line_client.reply_text_and_image(reply_token, ACCESS_CODE_WELCOME, settings.guide_image_url)
+            else:
+                line_client.reply_text(reply_token, ACCESS_CODE_WELCOME)
             _notify_redeemed(line_user_id, code_row)
             return
 
