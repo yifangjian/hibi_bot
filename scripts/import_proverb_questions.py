@@ -35,6 +35,7 @@ app/services/question_picker.py 的 get_scope_candidates），reading_input 固�
 """
 
 import argparse
+import re
 import sys
 from pathlib import Path
 from typing import Any, Optional
@@ -81,14 +82,35 @@ def _read_choice_sheet(ws) -> list[dict[str, Any]]:
     return rows
 
 
+HIRAGANA_RE = re.compile(r"^[ぁ-ゟー]+$")
+ALTERNATE_SPLIT_RE = re.compile(r"[、,，;；/／\n]")
+
+
 def _read_reading_sheet(ws) -> list[dict[str, Any]]:
-    """讀取 読み方 工作表（題目＋正確答案，無選項、無解析）。"""
+    """讀取 読み方 工作表（題目＋正確答案，無選項、無解析）。
+
+    第 3 欄「其他可接受答案」（選填）：可填多個替代讀音，用、；／等分隔。只收純平假名的
+    項目，合併進 correct_option（以「、」分隔，判分時任一個都算對，見
+    message_router._reading_matches）。不是平假名的內容（例如老師寫給評分者的備註
+    「僅差空格，評分時忽略空白即可」）會略過並在 skipped_notes 回報，不會被當成答案。
+    """
+    has_alternates = ws.max_column >= 3
     rows = []
     for r in range(2, ws.max_row + 1):
         context_sentence = ws.cell(row=r, column=1).value
         if context_sentence is None or _clean(context_sentence) == "":
             break
-        rows.append({"correct_option": _clean(ws.cell(row=r, column=2).value)})
+        answers = [_clean(ws.cell(row=r, column=2).value)]
+        skipped = None
+        if has_alternates:
+            raw = _clean(ws.cell(row=r, column=3).value)
+            for part in (p.strip() for p in ALTERNATE_SPLIT_RE.split(raw) if p.strip()):
+                if HIRAGANA_RE.match(part):
+                    if part not in answers:
+                        answers.append(part)
+                else:
+                    skipped = raw
+        rows.append({"correct_option": "、".join(answers), "skipped_note": skipped})
     return rows
 
 
@@ -154,6 +176,7 @@ def main() -> None:
     parser.add_argument("--file", required=True, help="Excel 檔案路徑（相對於專案根目錄）")
     parser.add_argument("--exam-scope", required=True, help="這批題目要匯入的 exam_scope 標籤")
     parser.add_argument("--limit", type=int, default=None, help="只匯入前 N 句（測試用）")
+    parser.add_argument("--dry-run", action="store_true", help="只讀檔並顯示結果，不寫入資料庫")
     args = parser.parse_args()
 
     existing = (
@@ -174,8 +197,23 @@ def main() -> None:
     if args.limit:
         rows = rows[: args.limit * 3]
 
-    for row in rows:
-        supabase.table("questions").insert(row).execute()
+    multi = [(i, y["correct_option"]) for i, y in enumerate(reading, start=1) if "、" in y["correct_option"]]
+    notes = [(i, y["skipped_note"]) for i, y in enumerate(reading, start=1) if y["skipped_note"]]
+    print(f"有其他可接受讀音的題目（{len(multi)} 題）：")
+    for i, ans in multi:
+        print(f"  第 {i} 題：{ans}")
+    if notes:
+        print(f"第 3 欄不是平假名、已略過的內容（{len(notes)} 題，請確認不是漏掉的答案）：")
+        for i, note in notes:
+            print(f"  第 {i} 題：{note}")
+
+    if args.dry_run:
+        print(f"[dry-run] 讀到 {len(rows) // 3} 句諺語（共 {len(rows)} 筆），未寫入資料庫")
+        return
+
+    # 分批寫入：逐筆 insert 幾百次，中途網路斷線就會留下匯到一半的資料
+    for start in range(0, len(rows), 90):
+        supabase.table("questions").insert(rows[start : start + 90]).execute()
 
     sentence_count = len(rows) // 3
     print(f'已匯入 {sentence_count} 句諺語（共 {len(rows)} 筆），exam_scope="{args.exam_scope}"')

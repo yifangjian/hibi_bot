@@ -4,10 +4,20 @@ from uuid import UUID
 
 from app.services import ai_tutor, daily_challenge, feedback_generator, flex_templates, line_client
 from app.services.answer_handler import finalize_attempt
-from app.services.question_picker import get_proverb_stage2, get_question, is_correct_option, option_text
+from app.services.question_picker import get_proverb_stage2, get_question, option_text
 from app.services.session_state import clear_session_state, get_session_state
 
 QUESTION_NUMBER_RE = re.compile(r"^\d+$")
+WHITESPACE_RE = re.compile(r"\s+")  # Python 的 \s 也涵蓋全形空白（U+3000）
+
+
+def _reading_matches(question: dict, text: str) -> bool:
+    """諺第二階段讀音比對：忽略所有空白（含中間、全形空白）。像「男は度胸 女は愛きょう」
+    這種兩段式諺語，學生打不打中間的空格都該算對；correct_option 可能以「、」分隔多個
+    可接受讀音（見 is_correct_option），兩邊都去掉空白後再比對。"""
+    typed = WHITESPACE_RE.sub("", text)
+    accepted = [WHITESPACE_RE.sub("", a) for a in (question.get("correct_option") or "").split("、")]
+    return bool(typed) and typed in accepted
 
 
 def handle_text_message(user_id: UUID, text: str, reply_token: str) -> None:
@@ -34,7 +44,7 @@ def _handle_reading_input(user_id: UUID, text: str, reply_token: str, context: d
     stage1_question = get_question(stage1_question_id)
     stage2_question = get_proverb_stage2(stage1_question)
 
-    stage2_correct = bool(stage2_question) and is_correct_option(stage2_question, text.strip())
+    stage2_correct = bool(stage2_question) and _reading_matches(stage2_question, text)
     is_correct = stage1_correct and stage2_correct
 
     # AI 生成回饋（chat_completion）通常比 finalize_attempt 整段 DB 寫入還慢，而且它不需要
