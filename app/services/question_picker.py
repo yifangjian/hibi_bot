@@ -163,10 +163,15 @@ def get_questions_by_numbers(
     return groups
 
 
+# 這兩個模式在同一輪內以隨機順序出題（研究者 2026-10 決定），讓整個範圍的題目都有被練到的
+# 機會，不會只集中在題號前段；諺語維持依題號順序（只有「意思題／情境題」這個變體是隨機的）。
+RANDOM_ORDER_MODES = {"vocab", "language_knowledge"}
+
+
 def get_available_questions_in_scope(
     user_id: str, mode: str, exam_scope: str, round_number: int, limit: Optional[int] = None
 ) -> list[dict[str, Any]]:
-    """這個範圍在目前輪次還沒作答過的題目（依 question_number 排序），一個 question_number
+    """這個範圍在目前輪次還沒作答過的題目，一個 question_number
     回傳一筆代表列。判斷「是否已作答過」以 question_number 為準，不是以列 id 為準——諺同一
     題號不管這次隨機抽到哪個變體，只要這個題號本輪已經作答過，就不會再被選中。
 
@@ -175,6 +180,9 @@ def get_available_questions_in_scope(
     （選項、情境句、解析），避免題庫變大、內容變長時（例如言語知識 600+ 題、解析動輒上百
     字）每次選題都要整批傳輸用不到的欄位——這個函式原本會一次抓下整個範圍的完整內容，
     但呼叫端（pick_next_question 只用第一筆、每日挑戰最多用 5 筆）從來不需要全部。
+
+    順序：RANDOM_ORDER_MODES（単語／言語知識）隨機，其他（諺）依 question_number 排序。
+    不論哪種順序，本輪答過的題號都不會再出現。
     """
     index = get_scope_progress_index(mode, exam_scope)
     id_to_number = {rid: number for number, ids in index.items() for rid in ids}
@@ -191,6 +199,8 @@ def get_available_questions_in_scope(
     attempted_numbers = {id_to_number[qid] for qid in attempted_ids_this_round if qid in id_to_number}
 
     available_numbers = sorted(n for n in index if n not in attempted_numbers)
+    if mode in RANDOM_ORDER_MODES:
+        random.shuffle(available_numbers)
     if limit is not None:
         available_numbers = available_numbers[:limit]
     if not available_numbers:
@@ -201,8 +211,8 @@ def get_available_questions_in_scope(
 
 
 def pick_next_question(user_id: UUID, mode: str) -> Optional[dict[str, Any]]:
-    """挑下一題：目前範圍、目前輪次裡還沒作答過的題目（依 question_number 排序取第一個，
-    諺會在該題號的變體之間隨機擇一）。若這一輪已全部作答完（理論上此時應先重置），保底回
+    """挑下一題：目前範圍、目前輪次裡還沒作答過的題目（単語／言語知識隨機挑一題；諺依
+    question_number 排序取第一個，並在該題號的變體之間隨機擇一）。若這一輪已全部作答完（理論上此時應先重置），保底回
     傳題號最小的一題，避免卡住無法互動。
     """
     exam_scope, current_round = get_current_scope_and_round(user_id, mode)
