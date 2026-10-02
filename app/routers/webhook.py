@@ -8,7 +8,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
-from app.services import line_client, menu_actions
+from app.services import access_codes, email_client, line_client, menu_actions
 from app.services.menu_interaction import log_menu_interaction
 from app.services.message_router import handle_text_message
 from app.services.session_state import get_session_state
@@ -23,19 +23,48 @@ router = APIRouter(prefix="/webhook", tags=["webhook"])
 SLOW_POSTBACK_ACTIONS = {"answer", "review_answer", "daily_challenge_answer"}
 SLOW_TEXT_PENDING_ACTIONS = {"awaiting_reading_input", "awaiting_ai_tutor_question_number", "in_ai_tutor_conversation"}
 
+CONTACT = "412101338@o365.tku.edu.tw"
+
 DEACTIVATED_MESSAGE = (
     "您好，不好意思打擾了！\n\n"
-    "因為本聊天機器人是專為參與暑修班實驗組的同學設計，經過與問卷填答名單核對後，"
-    "我們發現您的資料目前不在參與名單內，所以這個帳號暫時無法繼續使用本服務。\n\n"
-    "如果您認為這是誤判，或有任何疑問，都歡迎聯繫我：412101338@o365.tku.edu.tw\n\n"
+    "本聊天機器人僅供參與研究的同學使用，這個帳號目前已停用，暫時無法繼續使用本服務。\n\n"
+    f"如果您認為這是誤判，或有任何疑問，都歡迎聯繫我：{CONTACT}\n\n"
     "謝謝您之前的使用，也很抱歉造成不便！"
 )
 
-PENDING_MESSAGE = (
-    "您好，感謝您加入！本帳號僅供參與暑修班實驗組的學生使用，"
-    "需要先確認您的資格才能開始使用。審核通常很快，請耐心稍候；"
-    "若有疑問可以聯繫：412101338@o365.tku.edu.tw"
+ACCESS_CODE_PROMPT = (
+    "您好，歡迎使用日日くん！\n\n"
+    "本帳號僅供參與研究的同學使用，請直接在聊天室輸入您拿到的 6 碼開通碼，開通後就可以開始練習。\n\n"
+    f"若有疑問請聯繫：{CONTACT}"
 )
+
+ACCESS_CODE_INVALID = (
+    "這組開通碼無效或已經被使用過了，請確認後再輸入一次（英文大小寫都可以）。\n\n"
+    f"如果確定沒有打錯，請聯繫：{CONTACT}"
+)
+
+ACCESS_CODE_WELCOME = "開通成功！現在可以開始使用囉，點選下方選單開始練習吧 🎉"
+
+
+def _notify_redeemed(line_user_id: str, code_row: dict) -> None:
+    """有人兌換成功時寄信通知研究者，方便即時發現「某組碼被不該拿到的人用掉」這種狀況。
+    只是輔助通知，查名字或寄信失敗都不該影響使用者已經開通的結果。"""
+    try:
+        display_name = line_client.get_display_name(line_user_id)
+    except Exception:
+        logger.exception("failed to fetch LINE display name for redeemed user")
+        display_name = "（查詢顯示名稱失敗）"
+    try:
+        email_client.send_notification_email(
+            subject=f"hibi_bot 開通碼已兌換：{code_row['code']}",
+            body=(
+                f"開通碼：{code_row['code']}（{code_row['category']}）\n"
+                f"顯示名稱：{display_name}\n"
+                f"line_user_id：{line_user_id}\n"
+            ),
+        )
+    except Exception:
+        logger.exception("failed to send redemption notification email")
 
 
 def _show_loading_animation(line_user_id: str) -> None:
@@ -80,7 +109,7 @@ def _handle_postback(event: dict) -> None:
             line_client.reply_text(reply_token, DEACTIVATED_MESSAGE)
             return
         if status == "pending":
-            line_client.reply_text(reply_token, PENDING_MESSAGE)
+            line_client.reply_text(reply_token, ACCESS_CODE_PROMPT)
             return
         log_menu_interaction(user_id=user_id, action=action, mode=mode)
         menu_actions.dispatch(action, params, user_id, reply_token)
@@ -103,7 +132,13 @@ def _handle_message(event: dict) -> None:
             line_client.reply_text(reply_token, DEACTIVATED_MESSAGE)
             return
         if status == "pending":
-            line_client.reply_text(reply_token, PENDING_MESSAGE)
+            # 還沒開通的使用者，傳來的任何文字都當成開通碼嘗試兌換
+            code_row = access_codes.redeem(user_id, text)
+            if code_row is None:
+                line_client.reply_text(reply_token, ACCESS_CODE_INVALID)
+                return
+            line_client.reply_text(reply_token, ACCESS_CODE_WELCOME)
+            _notify_redeemed(line_user_id, code_row)
             return
 
         state = get_session_state(user_id)

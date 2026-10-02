@@ -17,3 +17,7 @@ supabase/.temp/
 
 # 手動資料庫備份（含真實使用者資料，絕對不能進公開 repo）
 backups/
+
+# 開通碼 CSV（含學號／姓名對照，絕對不能進公開 repo）
+access_codes/
+backups.zip

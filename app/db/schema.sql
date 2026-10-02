@@ -5,10 +5,23 @@ CREATE TABLE users (
     created_at TIMESTAMPTZ DEFAULT now(),
     is_active BOOLEAN NOT NULL DEFAULT true,  -- 已棄用欄位，保留但沒有程式碼再讀寫，資格判斷邏輯改用下面的 status
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'inactive'))
-    -- pending：新使用者第一次互動，等研究者確認資格（會寄 email 通知）
-    -- active：確認是研究參與者，正常使用
-    -- inactive：確認不是研究參與者，已停用；不論哪個狀態都不會刪除任何歷史資料，只擋後續互動
+    -- pending：還沒輸入開通碼（新使用者一律從這裡開始）
+    -- active：已用開通碼開通，正常使用
+    -- inactive：研究者手動停用（例如作廢開通碼）；不論哪個狀態都不會刪除任何歷史資料，只擋後續互動
 );
+
+-- 開通碼：研究者確認名單後發給實驗組同學／測試人員，一組碼只能被一個使用者兌換。
+-- 不存學號或姓名——碼與學號的對照由研究者自行保管（scripts/generate_access_codes.py 輸出的 CSV）。
+CREATE TABLE access_codes (
+    code TEXT PRIMARY KEY,
+    category TEXT NOT NULL CHECK (category IN ('experiment', 'tester')),  -- 分析時用 tester 排除測試人員
+    note TEXT,
+    user_id UUID REFERENCES users(id),  -- NULL 代表尚未被兌換
+    redeemed_at TIMESTAMPTZ,
+    revoked BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE access_codes ENABLE ROW LEVEL SECURITY;
 
 -- 題目（彈性設計，支援三種模式與諺的多階段結構）
 CREATE TABLE questions (

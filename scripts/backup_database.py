@@ -40,6 +40,7 @@ TABLES = [
     "user_session_state",
     "ai_conversation_log",
     "push_log",
+    "access_codes",
 ]
 
 PAGE_SIZE = 1000
