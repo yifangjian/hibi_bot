@@ -13,7 +13,8 @@ logger = logging.getLogger("hibi_bot.menu_actions")
 def _serve_next_question(user_id: UUID, mode: Optional[str], reply_token: str) -> None:
     question = pick_next_question(user_id, mode)
     if not question:
-        line_client.reply_text(reply_token, f"「{mode}」目前還沒有題目，請聯繫老師新增題庫內容。")
+        label = flex_templates.MODE_LABELS.get(mode, mode)
+        line_client.reply_text(reply_token, f"「{label}」目前還沒有題目，請聯繫老師新增題庫內容。")
         return
     line_client.reply_flex(reply_token, alt_text="練習題", contents=flex_templates.build_question_card(question))
 
