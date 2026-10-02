@@ -34,8 +34,12 @@ DEACTIVATED_MESSAGE = (
 
 ACCESS_CODE_PROMPT = (
     "您好，歡迎使用日日くん！\n\n"
-    "本帳號僅供參與研究的同學使用，請直接在聊天室輸入您拿到的 6 碼開通碼，開通後就可以開始練習。\n\n"
-    f"若有疑問請聯繫：{CONTACT}"
+    "本帳號僅供參與研究的實驗組同學使用，請直接在聊天室輸入您的 6 碼開通碼完成開通。"
+    "開通碼已寄至您的學校信箱（o365.tku.edu.tw），請至信箱收取。\n\n"
+    "・一組開通碼僅能供一人開通，開通後即失效\n"
+    "・開通碼限本人使用，請勿提供給他人\n"
+    "・若經前測問卷比對，發現 LINE 名稱與開通的 LINE 帳號不符，經通知確認後將取消使用權限\n"
+    f"・如有更換 LINE 帳號等問題，請聯繫我領取新的開通碼：{CONTACT}"
 )
 
 ACCESS_CODE_INVALID = (
@@ -132,7 +136,11 @@ def _handle_message(event: dict) -> None:
             line_client.reply_text(reply_token, DEACTIVATED_MESSAGE)
             return
         if status == "pending":
-            # 還沒開通的使用者，傳來的任何文字都當成開通碼嘗試兌換
+            # 還沒開通：看起來像開通碼（正規化後剛好 6 碼英數）才嘗試兌換；像「哈囉」這種一般
+            # 聊天文字直接回開通說明，不然還沒拿到碼的人會莫名其妙收到「開通碼無效」
+            if len(access_codes.normalize_code(text)) != access_codes.CODE_LENGTH:
+                line_client.reply_text(reply_token, ACCESS_CODE_PROMPT)
+                return
             code_row = access_codes.redeem(user_id, text)
             if code_row is None:
                 line_client.reply_text(reply_token, ACCESS_CODE_INVALID)
