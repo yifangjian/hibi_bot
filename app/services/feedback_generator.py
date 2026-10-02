@@ -90,13 +90,20 @@ def generate_and_log_feedback(
     return text
 
 
+def _has_no_explanation(question: dict) -> bool:
+    """前測（暑修班）的単語題庫是純讀音測驗、沒有解析，答題後只顯示正確讀音、不呼叫 AI。
+    115 學年起的単語題庫改成情境句挖空且每題附解析，就跟諺／言語知識一樣走 AI 生成。
+    用「有沒有 explanation_rule」判斷，而不是看 mode，舊範圍的題目行為才不會跟著改變。"""
+    return question["mode"] == "vocab" and not (question.get("explanation_rule") or "").strip()
+
+
 def start_feedback_generation(question: dict, opt: Optional[str], is_correct: bool):
-    """単語模式沒有 AI 生成（見 finish_feedback_text），回傳 (None, {})。其他模式在背景
+    """沒有解析的舊単語題不呼叫 AI（見 finish_feedback_text），回傳 (None, {})。其他題目在背景
     執行緒起跑 AI 呼叫，跟隨後的 finalize_attempt（DB 寫入）平行執行——AI 生成通常比整段
     DB 寫入還慢，且不需要 attempt id，提前起跑可以減少使用者實際等待的總時間。單語／
     諺／言語知識三模式的一般練習、複習、每日挑戰共用這組邏輯。回傳 (thread, result_dict)。
     """
-    if question["mode"] == "vocab":
+    if _has_no_explanation(question):
         return None, {}
 
     result: dict = {}
@@ -118,10 +125,9 @@ def start_feedback_generation(question: dict, opt: Optional[str], is_correct: bo
 def finish_feedback_text(
     question: dict, attempt_id: UUID, feedback_thread, feedback_result: dict
 ) -> tuple[str, Optional[str]]:
-    """回傳 (回饋文字, 例句原文)。単語模式只考讀音，答案本身沒有需要說明的細膩語感，
-    所以不呼叫 AI、不寫 feedback_logs，直接告知正確讀音；諺／言語知識維持原本的 AI
-    生成流程（依 explanation_rule 為解釋依據）。"""
-    if question["mode"] == "vocab":
+    """回傳 (回饋文字, 例句原文)。沒有解析的舊単語題（純讀音測驗）不呼叫 AI、不寫
+    feedback_logs，直接告知正確讀音；其他題目走 AI 生成流程（依 explanation_rule 為解釋依據）。"""
+    if _has_no_explanation(question):
         correct_ids = (question.get("correct_option") or "").split("、")
         readings = "、".join(option_text(question, cid) for cid in correct_ids)
         return f"正確讀音是「{readings}」。", None

@@ -1,11 +1,10 @@
 """
-匯入單字讀音題庫。
+匯入單字題庫，支援兩種格式（依工作表名稱自動判斷）：
 
-讀取 data/raw/ 底下的 Excel 檔案（單一工作表：題目／選項A-D／正確答案，第 2 列開始，
-跳過標題列），寫入 questions 表。這批題目是「詞彙讀音測驗」形式（題目欄位是單一詞彙，
-不是情境例句），沒有解析欄位——単語模式只考讀音本身，答對答錯沒有需要 AI 說明的細膩
-語感，所以答題後直接顯示正確讀音，不呼叫 OpenAI（見 app/services/menu_actions.py 的
-_build_feedback_text）。
+- 「文脈穴埋め」（115 學年起）：情境句挖空（___），選出空格中詞語的讀音或寫法，每題附解析
+  （【単語】【読み】【意味】【例文】【中文】…），答題後跟諺／言語知識一樣由 AI 依解析生成說明。
+- 「読み方クイズ」（前測／暑修班）：題目是單一詞彙、選讀音、沒有解析，答題後只顯示正確讀音，
+  不呼叫 OpenAI（見 app/services/feedback_generator.py 的 _has_no_explanation）。
 
 question_number 從 1 開始流水編號，只在同一個 (mode, exam_scope) 內唯一（見
 app/db/schema.sql 的 unique_question_number_per_scope_stage）。
@@ -41,7 +40,9 @@ import openpyxl  # noqa: E402
 
 from app.db.client import supabase  # noqa: E402
 
-SHEET_NAME = "読み方クイズ"
+SHEET_NAME = "読み方クイズ"  # 前測（暑修班）格式：單一詞彙、選讀音、沒有解析
+SHEET_CONTEXT = "文脈穴埋め"  # 115 學年起的格式：情境句挖空、選讀音或寫法、每題附解析
+BLANK_MARKER = "___"
 OPTION_LETTERS = ["A", "B", "C", "D"]
 
 
@@ -64,6 +65,30 @@ def _read_rows(ws) -> list[dict[str, Any]]:
     return rows
 
 
+def _read_context_rows(ws) -> list[dict[str, Any]]:
+    """文脈穴埋め 格式：題目（情境句，含 ___ 挖空）／選項A-D／正確答案／解析。"""
+    rows = []
+    for r in range(2, ws.max_row + 1):
+        sentence = ws.cell(row=r, column=1).value
+        if sentence is None or _clean(sentence) == "":
+            break
+        sentence = _clean(sentence)
+        options = [
+            {"id": letter.lower(), "text": _clean(ws.cell(row=r, column=2 + i).value)}
+            for i, letter in enumerate(OPTION_LETTERS)
+        ]
+        rows.append(
+            {
+                "word": sentence,
+                "blank_marker": BLANK_MARKER if BLANK_MARKER in sentence else None,
+                "options": options,
+                "correct_option": _clean(ws.cell(row=r, column=6).value).lower(),
+                "explanation_rule": _clean(ws.cell(row=r, column=7).value) or None,
+            }
+        )
+    return rows
+
+
 def build_rows(entries: list[dict[str, Any]], exam_scope: str) -> list[dict[str, Any]]:
     return [
         {
@@ -72,10 +97,10 @@ def build_rows(entries: list[dict[str, Any]], exam_scope: str) -> list[dict[str,
             "question_number": i,
             "stage": None,
             "context_sentence": entry["word"],
-            "blank_marker": None,
+            "blank_marker": entry.get("blank_marker"),
             "options": entry["options"],
             "correct_option": entry["correct_option"],
-            "explanation_rule": None,
+            "explanation_rule": entry.get("explanation_rule"),
         }
         for i, entry in enumerate(entries, start=1)
     ]
@@ -86,6 +111,7 @@ def main() -> None:
     parser.add_argument("--file", required=True, help="Excel 檔案路徑（相對於專案根目錄）")
     parser.add_argument("--exam-scope", required=True, help="這批題目要匯入的 exam_scope 標籤")
     parser.add_argument("--limit", type=int, default=None, help="只匯入前 N 個詞（測試用）")
+    parser.add_argument("--dry-run", action="store_true", help="只讀檔並顯示結果，不寫入資料庫")
     args = parser.parse_args()
 
     existing = (
@@ -97,14 +123,23 @@ def main() -> None:
         sys.exit(1)
 
     wb = openpyxl.load_workbook(args.file, data_only=True)
-    entries = _read_rows(wb[SHEET_NAME])
+    if SHEET_CONTEXT in wb.sheetnames:
+        entries = _read_context_rows(wb[SHEET_CONTEXT])
+    else:
+        entries = _read_rows(wb[SHEET_NAME])
 
     rows = build_rows(entries, args.exam_scope)
     if args.limit:
         rows = rows[: args.limit]
 
-    for row in rows:
-        supabase.table("questions").insert(row).execute()
+    if args.dry_run:
+        with_expl = sum(1 for r in rows if r["explanation_rule"])
+        print(f"[dry-run] 讀到 {len(rows)} 題（{with_expl} 題有解析），未寫入資料庫")
+        return
+
+    # 分批寫入，避免逐筆寫幾百次中途斷線留下匯到一半的資料
+    for start in range(0, len(rows), 100):
+        supabase.table("questions").insert(rows[start : start + 100]).execute()
 
     print(f'已匯入 {len(rows)} 個單字，exam_scope="{args.exam_scope}"')
 
