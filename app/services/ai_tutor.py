@@ -1,5 +1,6 @@
 from datetime import date
-from uuid import UUID
+from typing import Optional
+from uuid import UUID, uuid4
 
 from app.config import settings
 from app.db.client import supabase
@@ -27,20 +28,46 @@ TUTOR_FOLLOWUP_SYSTEM_PROMPT = """你是一套日語教學系統的 AI 助教，
 - 回覆會直接顯示在 LINE 聊天室裡，LINE 不會渲染 markdown，所以絕對不要使用任何 markdown 語法（例如 **粗體**、# 標題、- 或 * 條列符號），只能用一般文字與換行。"""
 
 
-def _log(user_id: UUID, question_id: str, role: str, message: str) -> None:
+# ai_conversation_log.kind：initial＝輸入題號開始一次對話、followup＝追問（各含使用者與 AI 兩則）；
+# lookup_failed＝題號格式錯誤或找不到、limit_reached＝追問額度已用完被擋下（這兩種只有使用者那一則）
+CONVERSATION_KINDS = ("initial", "followup")
+
+
+def _log(
+    user_id: UUID,
+    question_id: Optional[str],
+    role: str,
+    message: str,
+    kind: str,
+    conversation_id: Optional[str] = None,
+) -> None:
     supabase.table("ai_conversation_log").insert(
-        {"user_id": str(user_id), "question_id": question_id, "role": role, "message": message}
+        {
+            "user_id": str(user_id),
+            "question_id": question_id,
+            "role": role,
+            "message": message,
+            "kind": kind,
+            "conversation_id": conversation_id,
+        }
     ).execute()
+
+
+def log_lookup_failed(user_id: UUID, text: str) -> None:
+    """題號沒查到也留紀錄：學生想用 AI 助教但沒用成，本身也是研究資料。"""
+    _log(user_id, None, "user", text, "lookup_failed")
 
 
 def start_conversation(user_id: UUID, mode: str, question_number_text: str, reply_token: str) -> None:
     exam_scope, _ = get_current_scope_and_round(user_id, mode)
     if exam_scope is None:
+        log_lookup_failed(user_id, question_number_text)
         line_client.reply_text(reply_token, "目前還沒有指定教學範圍，無法查詢題號")
         return
 
     question = find_question_by_number(mode, exam_scope, int(question_number_text))
     if not question:
+        log_lookup_failed(user_id, question_number_text)
         line_client.reply_text(reply_token, "找不到這個題號，請確認輸入正確")
         return
 
@@ -57,10 +84,15 @@ def start_conversation(user_id: UUID, mode: str, question_number_text: str, repl
     ]
     answer = chat_completion(messages)
 
-    _log(user_id, question["id"], "user", question_number_text)
-    _log(user_id, question["id"], "assistant", answer)
+    conversation_id = str(uuid4())
+    _log(user_id, question["id"], "user", question_number_text, "initial", conversation_id)
+    _log(user_id, question["id"], "assistant", answer, "initial", conversation_id)
 
-    set_session_state(user_id, "in_ai_tutor_conversation", {"question_id": question["id"], "mode": mode})
+    set_session_state(
+        user_id,
+        "in_ai_tutor_conversation",
+        {"question_id": question["id"], "mode": mode, "conversation_id": conversation_id},
+    )
     line_client.reply_flex(
         reply_token,
         alt_text="AI 助教解析",
@@ -73,6 +105,7 @@ def start_conversation(user_id: UUID, mode: str, question_number_text: str, repl
 def continue_conversation(user_id: UUID, context: dict, text: str, reply_token: str) -> None:
     question_id = context["question_id"]
     mode = context["mode"]
+    conversation_id = context.get("conversation_id")  # 上線前就開著的對話 context 裡沒有，記 NULL
     today = date.today().isoformat()
 
     usage = (
@@ -85,6 +118,7 @@ def continue_conversation(user_id: UUID, context: dict, text: str, reply_token: 
     turn_count = usage.data[0]["turn_count"] if usage.data else 0
 
     if turn_count >= settings.ai_tutor_daily_turn_limit:
+        _log(user_id, question_id, "user", text, "limit_reached", conversation_id)
         line_client.reply_flex(
             reply_token,
             alt_text="今日額度已用完",
@@ -106,6 +140,7 @@ def continue_conversation(user_id: UUID, context: dict, text: str, reply_token: 
         .select("role, message")
         .eq("user_id", str(user_id))
         .eq("question_id", question_id)
+        .in_("kind", list(CONVERSATION_KINDS))  # 被額度擋下的提問沒有 AI 回覆，不放進上下文
         .order("created_at")
         .execute()
         .data
@@ -123,8 +158,8 @@ def continue_conversation(user_id: UUID, context: dict, text: str, reply_token: 
 
     answer = chat_completion(messages)
 
-    _log(user_id, question_id, "user", text)
-    _log(user_id, question_id, "assistant", answer)
+    _log(user_id, question_id, "user", text, "followup", conversation_id)
+    _log(user_id, question_id, "assistant", answer, "followup", conversation_id)
 
     new_turn_count = turn_count + 1
     supabase.table("ai_conversation_usage").upsert(

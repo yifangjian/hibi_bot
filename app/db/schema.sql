@@ -148,6 +148,11 @@ CREATE TABLE ai_conversation_log (
     question_id UUID REFERENCES questions(id),
     role TEXT CHECK (role IN ('user', 'assistant')),
     message TEXT,
+    -- 2026-10 新增。conversation_id：每次輸入題號開一個新的，同一次對話的初次解析與追問共用；
+    -- kind：initial（輸入題號＋初次解析）／followup（追問）／lookup_failed（題號格式錯或查不到，question_id 為 NULL）／
+    -- limit_reached（追問額度用完被擋，只有使用者那一則）。舊資料以「使用者訊息為純數字＝開始新對話」回填
+    conversation_id UUID,
+    kind TEXT CHECK (kind IN ('initial', 'followup', 'lookup_failed', 'limit_reached')),
     created_at TIMESTAMPTZ DEFAULT now()
 );
 

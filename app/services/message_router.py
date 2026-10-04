@@ -128,6 +128,7 @@ def _handle_reading_input(user_id: UUID, text: str, reply_token: str, context: d
 def _handle_ai_tutor_question_number(user_id: UUID, text: str, reply_token: str, context: dict) -> None:
     stripped = text.strip()
     if not QUESTION_NUMBER_RE.match(stripped):
+        ai_tutor.log_lookup_failed(user_id, text)
         line_client.reply_text(reply_token, "請輸入有效的題號（純數字）")
         return
 
