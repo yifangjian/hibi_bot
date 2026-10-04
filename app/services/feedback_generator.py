@@ -164,7 +164,7 @@ def generate_and_log_feedback(
     return text
 
 
-def _has_no_explanation(question: dict) -> bool:
+def has_no_explanation(question: dict) -> bool:
     """前測（暑修班）的単語題庫是純讀音測驗、沒有解析，答題後只顯示正確讀音、不呼叫 AI。
     115 學年起的単語題庫改成情境句挖空且每題附解析，就跟諺／言語知識一樣走 AI 生成。
     用「有沒有 explanation_rule」判斷，而不是看 mode，舊範圍的題目行為才不會跟著改變。"""
@@ -185,7 +185,7 @@ def start_feedback_generation(question: dict, opt: Optional[str], is_correct: bo
     DB 寫入還慢，且不需要 attempt id，提前起跑可以減少使用者實際等待的總時間。單語／
     諺／言語知識三模式的一般練習、複習、每日挑戰共用這組邏輯。回傳 (thread, result_dict)。
     """
-    if _has_no_explanation(question):
+    if has_no_explanation(question):
         return None, {}
 
     result: dict = {}
@@ -219,7 +219,7 @@ def finish_feedback_text(
 ) -> tuple[str, Optional[str]]:
     """回傳 (回饋文字, 例句原文)。沒有解析的舊単語題（純讀音測驗）不呼叫 AI、不寫
     feedback_logs，直接告知正確讀音；其他題目走 AI 生成流程（依 explanation_rule 為解釋依據）。"""
-    if _has_no_explanation(question):
+    if has_no_explanation(question):
         correct_ids = (question.get("correct_option") or "").split("、")
         readings = "、".join(option_text(question, cid) for cid in correct_ids)
         return f"正確讀音是「{readings}」。", None

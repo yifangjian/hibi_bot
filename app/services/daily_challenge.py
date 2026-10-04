@@ -230,6 +230,7 @@ def handle_challenge_answer(user_id: UUID, params: dict, reply_token: str) -> No
             retry_action="daily_challenge_continue",
             example_sentence=example_sentence,
             challenge_id=challenge_id,
+            ai_generated=not feedback_generator.has_no_explanation(question),
         ),
     )
 

@@ -123,7 +123,7 @@ def continue_conversation(user_id: UUID, context: dict, text: str, reply_token: 
             reply_token,
             alt_text="今日額度已用完",
             contents=flex_templates.build_ai_tutor_reply_card(
-                "今日 AI 助教對話次數已達上限，明天再繼續問我吧", mode
+                "今日 AI 助教對話次數已達上限，明天再繼續問我吧", mode, ai_generated=False
             ),
         )
         return

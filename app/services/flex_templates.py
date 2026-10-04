@@ -8,6 +8,12 @@ MUTED = "#8A8578"
 
 MODE_LABELS = {"vocab": "単語", "proverb": "諺", "language_knowledge": "言語知識"}
 
+AI_NOTICE = "解說由 AI 生成，僅供參考；如有疑問請以課堂內容為準。"
+
+
+def _ai_notice() -> dict:
+    return {"type": "text", "text": AI_NOTICE, "wrap": True, "size": "xxs", "color": MUTED, "margin": "lg"}
+
 
 def _context_sentence_contents(context_sentence: str, blank_marker: Optional[str]) -> list:
     if blank_marker and blank_marker in context_sentence:
@@ -257,11 +263,16 @@ def build_challenge_question_card(question: dict[str, Any], challenge_id: str, p
     }
 
 
-def build_ai_tutor_reply_card(answer_text: str, mode: str, remaining_text: Optional[str] = None) -> dict:
-    """AI 助教回覆卡片（初次解析／追問共用）：內容 + 剩餘額度提示（若有）+「問其他題」／「繼續練習」按鈕。"""
+def build_ai_tutor_reply_card(
+    answer_text: str, mode: str, remaining_text: Optional[str] = None, ai_generated: bool = True
+) -> dict:
+    """AI 助教回覆卡片（初次解析／追問共用）：內容 + AI 生成提示 + 剩餘額度提示（若有）+
+    「問其他題」／「繼續練習」按鈕。額度用完的系統訊息不是 AI 寫的，傳 ai_generated=False。"""
     contents: list[dict] = [
         {"type": "text", "text": answer_text, "wrap": True, "size": "sm", "color": NAVY},
     ]
+    if ai_generated:
+        contents.append(_ai_notice())
     if remaining_text:
         contents.append(
             {"type": "text", "text": remaining_text, "wrap": True, "size": "xs", "color": MUTED, "margin": "md"}
@@ -319,6 +330,7 @@ def build_feedback_card(
     retry_action: str = "next_question",
     example_sentence: Optional[str] = None,
     challenge_id: Optional[str] = None,
+    ai_generated: bool = True,
 ) -> dict:
     """三模式共用的回饋卡片。retry_action 預設 "next_question"（一般練習的「再練一題」），
     複習錯題模式會傳入 "review_wrong"，按鈕文字與行為會跟著切換成「繼續複習」；每日挑戰
@@ -326,6 +338,7 @@ def build_feedback_card(
     （挑戰答完後推進到下一題／完成流程要用到，見 daily_challenge.handle_challenge_continue）。
     example_sentence 是解析裡的【例文】原文（未經 AI 改寫），AI 生成回饋常會把例句省略掉，
     所以額外原文顯示；沒有的話（例如非諺語模式）就不顯示這個區塊。
+    ai_generated 為 False（沒有解析、只顯示正確讀音的舊単語題）時不顯示 AI 生成提示。
     """
     if retry_action == "review_wrong":
         retry_label = "繼續複習"
@@ -368,6 +381,9 @@ def build_feedback_card(
                 "color": MUTED,
             }
         )
+
+    if ai_generated:
+        contents.append(_ai_notice())
 
     contents.append(
         {

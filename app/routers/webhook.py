@@ -48,7 +48,11 @@ ACCESS_CODE_INVALID = (
     f"如果確定沒有打錯，請聯繫：{CONTACT}"
 )
 
-ACCESS_CODE_WELCOME = "開通成功！現在可以開始使用囉，點選下方選單開始練習吧 🎉\n\n下面是操作說明，之後忘記怎麼用可以回來看。"
+ACCESS_CODE_WELCOME = (
+    "開通成功！現在可以開始使用囉，點選下方選單開始練習吧 🎉\n\n"
+    "作答後的解說與 AI 助教回覆由 AI 生成，可能有誤，發現錯誤歡迎告訴我。\n\n"
+    "下面是操作說明，之後忘記怎麼用可以回來看。"
+)
 
 
 def _notify_redeemed(line_user_id: str, code_row: dict) -> None:

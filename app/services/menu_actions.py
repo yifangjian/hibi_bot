@@ -114,7 +114,12 @@ def handle_review_answer(user_id: UUID, params: dict, reply_token: str) -> None:
         reply_token,
         alt_text="複習結果",
         contents=flex_templates.build_feedback_card(
-            is_correct, feedback_text, mode, retry_action="review_wrong", example_sentence=example_sentence
+            is_correct,
+            feedback_text,
+            mode,
+            retry_action="review_wrong",
+            example_sentence=example_sentence,
+            ai_generated=not feedback_generator.has_no_explanation(question),
         ),
     )
 
@@ -143,7 +148,11 @@ def handle_answer(user_id: UUID, params: dict, reply_token: str) -> None:
         reply_token,
         alt_text="答題結果",
         contents=flex_templates.build_feedback_card(
-            is_correct, feedback_text, question["mode"], example_sentence=example_sentence
+            is_correct,
+            feedback_text,
+            question["mode"],
+            example_sentence=example_sentence,
+            ai_generated=not feedback_generator.has_no_explanation(question),
         ),
     )
 
