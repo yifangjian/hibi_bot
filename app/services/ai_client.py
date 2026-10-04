@@ -1,3 +1,4 @@
+import json
 import threading
 
 from openai import OpenAI
@@ -24,3 +25,15 @@ def _get_client() -> OpenAI:
 def chat_completion(messages: list[dict]) -> str:
     response = _get_client().chat.completions.create(model=settings.openai_model, messages=messages)
     return response.choices[0].message.content
+
+
+def chat_completion_json(messages: list[dict], schema_name: str, schema: dict) -> dict:
+    """要求模型嚴格依 JSON schema 回傳（OpenAI structured outputs）。用在輸出結構必須固定的
+    地方：只靠提示詞要求「答對時不要寫某段」「不要重列某個選項」，實測模型不會每次都照做，
+    改成分欄位回傳、由程式組裝，結構就不會跑掉。"""
+    response = _get_client().chat.completions.create(
+        model=settings.openai_model,
+        messages=messages,
+        response_format={"type": "json_schema", "json_schema": {"name": schema_name, "strict": True, "schema": schema}},
+    )
+    return json.loads(response.choices[0].message.content)
