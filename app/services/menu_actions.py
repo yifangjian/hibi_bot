@@ -2,12 +2,28 @@ import logging
 from typing import Optional
 from uuid import UUID
 
+from app.db.client import supabase
 from app.services import daily_challenge, feedback_generator, flex_templates, line_client, progress_view, reset_handler
 from app.services.answer_handler import finalize_attempt, proverb_answer_detail
 from app.services.question_picker import get_question, is_correct_option, pick_next_question, pick_wrong_question
+from app.services.rich_menu_alias import mode_alias
 from app.services.session_state import clear_session_state, set_session_state
 
 logger = logging.getLogger("hibi_bot.menu_actions")
+
+
+def _switch_menu(user_id: UUID, alias_id: str) -> None:
+    """從卡片上的按鈕（「再練一題」「繼續練習」「繼續複習」）出題時，把圖文選單切回對應的
+    子選單。按圖文選單本身的按鈕時 LINE 會自己切換，但卡片按鈕只會送 postback，選單會停在
+    使用者最後停留的地方——例如練習中按了「返回」再點「再練一題」，選單就卡在模式選單，
+    看不到「AI助教」。在回覆送出之後才呼叫，不拖慢使用者看到題目的時間；切換失敗只記錄，
+    不影響已經送出的題目。"""
+    try:
+        rows = supabase.table("users").select("line_user_id").eq("id", str(user_id)).execute().data
+        if rows:
+            line_client.switch_rich_menu(rows[0]["line_user_id"], alias_id)
+    except Exception:
+        logger.exception("failed to switch rich menu to %s for user=%s", alias_id, user_id)
 
 
 def _serve_next_question(user_id: UUID, mode: Optional[str], reply_token: str) -> None:
@@ -33,7 +49,10 @@ def handle_start_practice(user_id: UUID, params: dict, reply_token: str) -> None
 
 def handle_next_question(user_id: UUID, params: dict, reply_token: str) -> None:
     clear_session_state(user_id)
-    _serve_next_question(user_id, params.get("mode"), reply_token)
+    mode = params.get("mode")
+    _serve_next_question(user_id, mode, reply_token)
+    if mode in flex_templates.MODE_LABELS:
+        _switch_menu(user_id, mode_alias("start_practice", mode))
 
 
 def handle_enter_wrong_mode(user_id: UUID, params: dict, reply_token: str) -> None:
@@ -66,6 +85,7 @@ def handle_review_wrong(user_id: UUID, params: dict, reply_token: str) -> None:
         alt_text="複習錯題",
         contents=flex_templates.build_question_card(question, action="review_answer"),
     )
+    _switch_menu(user_id, mode_alias("wrong_question", mode))
 
 
 def handle_review_answer(user_id: UUID, params: dict, reply_token: str) -> None:

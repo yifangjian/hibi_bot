@@ -87,7 +87,19 @@ def get_display_name(line_user_id: str) -> str:
     return profile.display_name
 
 
-def switch_rich_menu_to_main(line_user_id: str) -> None:
+# alias → rich menu id 的對照幾乎不會變（只有重跑 setup_richmenu.py 才會換），快取起來省一次
+# API 呼叫；重設選單後重新部署（重啟程序）快取就會清空
+_alias_cache: dict[str, str] = {}
+
+
+def switch_rich_menu(line_user_id: str, alias_id: str) -> None:
     api = _client()
-    alias = api.get_rich_menu_alias(rich_menu_alias_id=ALIAS_MAIN)
-    api.link_rich_menu_id_to_user(user_id=line_user_id, rich_menu_id=alias.rich_menu_id)
+    rich_menu_id = _alias_cache.get(alias_id)
+    if rich_menu_id is None:
+        rich_menu_id = api.get_rich_menu_alias(rich_menu_alias_id=alias_id).rich_menu_id
+        _alias_cache[alias_id] = rich_menu_id
+    api.link_rich_menu_id_to_user(user_id=line_user_id, rich_menu_id=rich_menu_id)
+
+
+def switch_rich_menu_to_main(line_user_id: str) -> None:
+    switch_rich_menu(line_user_id, ALIAS_MAIN)
