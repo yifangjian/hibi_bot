@@ -135,8 +135,9 @@ def main() -> None:
     if args.limit:
         all_rows = all_rows[: args.limit]
 
-    for row in all_rows:
-        supabase.table("questions").insert(row).execute()
+    # 分批寫入，避免逐筆寫幾百次中途斷線留下匯到一半的資料
+    for start in range(0, len(all_rows), 100):
+        supabase.table("questions").insert(all_rows[start : start + 100]).execute()
 
     print(f'已匯入 {len(all_rows)} 題，exam_scope="{args.exam_scope}"')
 
