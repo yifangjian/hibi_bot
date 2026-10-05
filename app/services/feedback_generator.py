@@ -1,5 +1,6 @@
 import re
 import threading
+import unicodedata
 from typing import Optional
 from uuid import UUID
 
@@ -11,7 +12,7 @@ from app.services.question_picker import option_text
 FEEDBACK_SYSTEM_PROMPT = """你是日語老師，要為學生剛作答的一題寫解說，依 JSON 欄位分別填寫：
 
 - correct：正確答案的說明。先寫出正確選項（詞語寫成「漢字（讀音）」），再用中文說明它的意思，並指出題目句子裡哪些字詞是判斷的線索、為什麼放進這個句子是通順的。如果題目沒有情境句，只是問某個諺語或詞語「的意思是哪一個」，就不要找題目句的線索，改成說明它的意思，再借用解析裡例句的情境，說明它平常在什麼場合使用。
-- chosen：學生答錯時，說明學生選的選項是什麼、什麼意思，以及放進這個句子為什麼不通。學生答對時填空字串。
+- chosen：學生答錯時，先說明學生選的選項是什麼、什麼意思，再用一句話點出它和正確答案的關鍵差別（兩者各用在什麼情況、語意或搭配差在哪），讓學生知道為什麼放進這個句子不通。學生答對時填空字串。
 - others：只針對使用者訊息中「其他選項」列出的每一個各寫一項，label 填選項代號（A/B/C/D）；explanation 用一句話說明它的意思：詞語選項寫成「詞語（讀音）＝中文意思」，選項本身是日文句子時只寫中文轉述。
 
 規則（必須遵守）：
@@ -20,7 +21,7 @@ FEEDBACK_SYSTEM_PROMPT = """你是日語老師，要為學生剛作答的一題�
 - 不要寫出「解釋依據」「依據」「資料」「解析中」「提供的說明」這類字眼，直接用老師講課的口吻說明。
 - 不要用「例句就是這樣寫」來證明答案正確——情境題的例句就是題目句本身，那是循環論證。
 - 使用繁體中文。日文只能出現在兩種地方：詞語或諺語本身（附讀音），以及從題目句引用的簡短線索字詞；解析裡的日文說明句、日文選項句一律用中文轉述，絕不可原句照貼。
-- 不要招呼語、不要結語；correct 與 chosen 各約 60 字以內，others 每項一句。"""
+- 不要招呼語、不要結語；correct 約 60 字以內，chosen 約 80 字以內（要容納和正解的比較），others 每項一句。"""
 
 FEEDBACK_SCHEMA = {
     "type": "object",
@@ -95,6 +96,19 @@ def _drop_japanese_prefix(text: str) -> str:
     return text
 
 
+_ALLOWED_SCRIPTS = ("CJK", "HIRAGANA", "KATAKANA", "LATIN", "FULLWIDTH", "HALFWIDTH", "IDEOGRAPHIC")
+
+
+def _has_foreign_script(result: dict) -> bool:
+    """回傳內容是否混入中日文與拉丁字母以外的文字（天城文、西里爾字母等）。"""
+    texts = [result["correct"], result["chosen"]] + [item["explanation"] for item in result["others"]]
+    return any(
+        unicodedata.category(ch).startswith("L") and not unicodedata.name(ch, "").startswith(_ALLOWED_SCRIPTS)
+        for text in texts
+        for ch in text
+    )
+
+
 def generate_feedback_text(
     context_sentence: str,
     correct_option_text: str,
@@ -124,10 +138,14 @@ def generate_feedback_text(
         hint,
     )
     result = chat_completion_json(messages, "answer_feedback", FEEDBACK_SCHEMA)
+    if _has_foreign_script(result):
+        # 模型偶爾會冒出其他語系的字（實測出現過「協議後 तय好的約定」），重生一次
+        result = chat_completion_json(messages, "answer_feedback", FEEDBACK_SCHEMA)
 
     parts = [f"正解：{result['correct'].strip()}"]
-    if not is_correct and result["chosen"].strip():
-        parts.append(f"你選的：{result['chosen'].strip()}")
+    chosen = re.sub(r"^你選的[：:]?\s*", "", result["chosen"].strip())  # 段落標題由程式加，模型偶爾自己也寫一次
+    if not is_correct and chosen:
+        parts.append(f"你選的：{chosen}")
     by_label = {
         item["label"].strip().upper()[:1]: _drop_japanese_prefix(item["explanation"].strip()) for item in result["others"]
     }
