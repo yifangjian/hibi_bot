@@ -313,6 +313,13 @@ python scripts/backup_database.py
 
 會在 `backups/<時間戳記>/` 底下產生每張表各自的 JSON 檔案（`backups/` 已加進 `.gitignore`，因為裡面是真實使用者資料，絕對不能進公開 repo）。這不是完整的 SQL dump（不含 sequence／function／trigger，這個專案目前也沒有用到這些），但涵蓋所有實際資料列，真的需要復原時的流程是：先用 `app/db/schema.sql` 建好表結構，再把 JSON 資料灌回去。備份頻率目前沒有自動化排程（曾經嘗試用 macOS 的 `launchd` 排程，但這個專案放在「桌面」資料夾，macOS 的隱私保護機制會擋掉背景排程程式的檔案存取，需要手動到「系統設定 → 隱私權與安全性 → 完整磁碟取用權」額外授權才能自動化），目前採取的做法是想到就手動執行一次。
 
+**AI 回覆審核報告（`scripts/ai_review_report.py`）**：研究計畫要求生成式 AI 的回覆經人工檢核，這支腳本把某一天（台灣時間，預設昨天）所有 AI 生成內容匯出成 Excel：「作答解說」工作表（`feedback_logs`，附題目、選項、正解、學生選的、對錯）與「AI助教」工作表（`ai_conversation_log`，同一次對話排在一起，題號查無／額度用完也列出），每列最後留「審核（正確／有誤）」「備註」兩欄給研究者填，審核完的檔案即為人工檢核紀錄。使用者只以開通碼標示，輸出到 `ai_reviews/`（已加進 `.gitignore`，內含學生作答）。
+
+```bash
+python scripts/ai_review_report.py                          # 昨天
+python scripts/ai_review_report.py --date 2026-10-20 --days 7   # 指定起始日、連續 7 天
+```
+
 ## License
 
 本專案採用 [MIT License](LICENSE)。

@@ -21,3 +21,4 @@ backups/
 # 開通碼 CSV（含學號／姓名對照，絕對不能進公開 repo）
 access_codes/
 backups.zip
+ai_reviews/
